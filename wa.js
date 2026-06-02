@@ -4,15 +4,18 @@ const { JWT } = require('google-auth-library');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const pino = require('pino');
 
-// KONFIGURASI - Sesuai data Anda
+// KONFIGURASI
 const SPREADSHEET_ID = '1qUkDrgWdqXrqN661OF8SjIRdOeOBQYZoS-9vzjxllv4';
 const GEMINI_API_KEY = 'AQ.Ab8RN6IzFstx5G2VOW1ABVgNq8Hg9gzc1_r2xR4ZI323JoWqMA';
 const NOMOR_AKSES = '6285779381664@s.whatsapp.net';
 
+// Inisialisasi AI
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
     const sock = makeWASocket({
-        logger: pino({ level: 'silent' }),
+        logger: pino({ level: 'info' }),
         printQRInTerminal: true,
         auth: state
     });
@@ -26,7 +29,7 @@ async function startBot() {
         const sender = msg.key.remoteJid;
         const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").trim();
 
-        // Regex untuk parsing angka (Contoh: 50k, 1jt)
+        // 1. Parsing Keuangan
         const regex = /(\d+)\s*(k|jt|juta)?/i;
         const match = text.match(regex);
 
@@ -49,8 +52,17 @@ async function startBot() {
                 await sheet.addRow({ Tanggal: new Date().toLocaleDateString(), Nominal: nominal, Keterangan: text });
                 await sock.sendMessage(sender, { text: `✅ Berhasil mencatat: Rp ${nominal.toLocaleString()}` });
             } catch (err) {
-                console.error(err);
-                await sock.sendMessage(sender, { text: "❌ Gagal mencatat ke Google Sheet. Periksa file JSON atau ID Spreadsheet." });
+                await sock.sendMessage(sender, { text: "❌ Gagal mencatat ke Google Sheet." });
+            }
+        } 
+        // 2. Fitur AI (Jika bukan pesan transaksi)
+        else if (sender === NOMOR_AKSES) {
+            try {
+                const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+                const result = await model.generateContent(text);
+                await sock.sendMessage(sender, { text: result.response.text() });
+            } catch (err) {
+                console.error("AI Error:", err);
             }
         }
     });
@@ -64,4 +76,4 @@ async function startBot() {
     });
 }
 
-startBot().catch(err => console.error(err));
+startBot();
