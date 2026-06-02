@@ -5,9 +5,9 @@ const { GoogleGenerativeAI } = require('@google/genai');
 const pino = require('pino');
 
 // KONFIGURASI - Isi sesuai data Anda
-const SPREADSHEET_ID = 'MASUKKAN_ID_SPREADSHEET_ANDA';
-const GEMINI_API_KEY = 'MASUKKAN_API_KEY_ANDA';
-const NOMOR_AKSES = '628xxxxxxxxxx@s.whatsapp.net'; // Nomor Anda
+const SPREADSHEET_ID = '1qUkDrgWdqXrqN661OF8SjIRdOeOBQYZoS-9vzjxllv4';
+const GEMINI_API_KEY = 'AQ.Ab8RN6IzFstx5G2VOW1ABVgNq8Hg9gzc1_r2xR4ZI323JoWqMA';
+const NOMOR_AKSES = '6285779381664@s.whatsapp.net'; // Nomor Anda
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
