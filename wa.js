@@ -2,6 +2,7 @@ const {
     default: makeWASocket,
     useMultiFileAuthState,
     fetchLatestBaileysVersion,
+    DisconnectReason,
     delay
 } = require("@whiskeysockets/baileys");
 
@@ -22,10 +23,12 @@ const NOMOR_AKSES_EKSKLUSIF = "6285779381664";
 const serviceAccount = require("./botkeuanganwa-498112-291d9b26247d.json");
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
+const statusReset = {}; 
 let terakhirPairingCode = null;
+let botTerhubung = false;
 
 // =================================================================
-// FUNGSI LOGIKA (GOOGLE SHEETS & AI)
+// FUNGSI LOGIKA (GOOGLE SHEET & AI)
 // =================================================================
 async function getSheet() {
     const formattedKey = serviceAccount.private_key.replace(/\\n/g, '\n');
@@ -37,7 +40,9 @@ async function getSheet() {
 
 async function analisisPesanDenganAI(teksUser) {
     try {
-        const prompt = `Analisis keuangan: "${teksUser}". Jika pemasukan/pengeluaran, konversi ke JSON: {"is_transaksi": true, "jenis": "Pemasukan"/"Pengeluaran", "nominal": angka, "kategori": "...", "keterangan": "...", "tanggal": "DD/MM/YYYY"}. Jika bukan transaksi, {"is_transaksi": false}`;
+        const prompt = `Anda adalah kasir pintar. Analisis: "${teksUser}". 
+        Jika transaksi, beri JSON: {"is_transaksi": true, "jenis": "Pemasukan"/"Pengeluaran", "nominal": angka, "kategori": "...", "keterangan": "...", "tanggal": "DD/MM/YYYY"}. 
+        Jika bukan, is_transaksi: false. Tanpa markdown.`;
         const response = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: prompt });
         return JSON.parse(response.text.replace(/```json/g, "").replace(/```/g, "").trim());
     } catch (e) { return { is_transaksi: false }; }
@@ -56,7 +61,7 @@ async function buatLaporanKeuangan(tipe) {
 }
 
 // =================================================================
-// CORE BOT
+// CORE BOT (PAIRING CODE)
 // =================================================================
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState("./session_pencatatan_baru");
@@ -74,8 +79,10 @@ async function startBot() {
             let code = await sock.requestPairingCode(NOMOR_BOT);
             terakhirPairingCode = code?.match(/.{1,4}/g)?.join("-") || code;
             console.log(`🔑 PAIRING CODE: ${terakhirPairingCode}`);
-        }, 3000);
+        }, 5000);
     }
+
+    sock.ev.on("connection.update", (u) => { if (u.connection === "open") botTerhubung = true; });
 
     sock.ev.on("messages.upsert", async ({ messages }) => {
         const msg = messages[0];
@@ -87,19 +94,19 @@ async function startBot() {
         const text = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
         const pesan = text.toLowerCase().trim();
 
-        if (pesan === "menu" || pesan === "p") {
-            await sock.sendMessage(from, { text: "🤖 *Bot Keuangan*\n\nPerintah:\n- #hari / #bulan (Laporan)\n- #undo (Hapus terakhir)\n- #reset (Hapus data)\n- Ketik transaksi (contoh: Nasi 25k)" });
+        if (/^(menu|p)$/.test(pesan)) {
+            await sock.sendMessage(from, { text: "🤖 *Bot Keuangan Aktif*\n- #hari / #bulan (Laporan)\n- #undo (Hapus terakhir)\n- #reset (Hapus data)\n- Ketik transaksi (contoh: Nasi 25k)" });
         } else if (pesan.startsWith("#")) {
             const lap = await buatLaporanKeuangan(pesan.replace("#", ""));
-            await sock.sendMessage(from, { text: `📊 Laporan ${pesan}:\nMasuk: Rp${lap.totalMasuk}\nKeluar: Rp${lap.totalKeluar}` });
+            await sock.sendMessage(from, { text: `📊 Laporan ${pesan}:\nMasuk: Rp${lap.totalMasuk}\nKeluar: Rp${lap.totalKeluar}\nSaldo: Rp${lap.saldo}` });
         } else if (pesan === "#undo") {
             const sheet = await getSheet();
             const rows = await sheet.getRows();
-            if (rows.length > 0) { await rows[rows.length - 1].delete(); await sock.sendMessage(from, { text: "↩️ Transaksi dihapus." }); }
+            if (rows.length > 0) { await rows[rows.length - 1].delete(); await sock.sendMessage(from, { text: "↩️ Transaksi terakhir dihapus." }); }
         } else if (pesan === "#reset") {
             const sheet = await getSheet();
             await sheet.clearRows();
-            await sock.sendMessage(from, { text: "🗑️ Data telah direset." });
+            await sock.sendMessage(from, { text: "🗑️ Data berhasil direset." });
         } else {
             const dataAi = await analisisPesanDenganAI(text);
             if (dataAi.is_transaksi) {
@@ -111,5 +118,6 @@ async function startBot() {
     });
 }
 
-http.createServer((req, res) => res.end(terakhirPairingCode || "Bot Running")).listen(7860);
+// Web Server untuk Pairing Code
+http.createServer((req, res) => res.end(terakhirPairingCode ? `Kode: ${terakhirPairingCode}` : "Bot Loading...")).listen(7860);
 startBot();
