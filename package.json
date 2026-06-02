@@ -2,14 +2,10 @@
   "name": "bot-keuangan-wa",
   "version": "1.0.0",
   "main": "wa.js",
-  "scripts": {
-    "start": "node wa.js"
-  },
   "dependencies": {
     "@whiskeysockets/baileys": "latest",
     "google-spreadsheet": "latest",
     "google-auth-library": "latest",
-    "@google/genai": "latest",
     "pino": "latest"
   }
 }
