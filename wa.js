@@ -1,13 +1,13 @@
 const { makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
-const { GoogleGenerativeAI } = require('@google/genai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const pino = require('pino');
 
-// KONFIGURASI - Isi sesuai data Anda
+// KONFIGURASI - Sesuai data Anda
 const SPREADSHEET_ID = '1qUkDrgWdqXrqN661OF8SjIRdOeOBQYZoS-9vzjxllv4';
 const GEMINI_API_KEY = 'AQ.Ab8RN6IzFstx5G2VOW1ABVgNq8Hg9gzc1_r2xR4ZI323JoWqMA';
-const NOMOR_AKSES = '6285779381664@s.whatsapp.net'; // Nomor Anda
+const NOMOR_AKSES = '6285779381664@s.whatsapp.net';
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -26,19 +26,18 @@ async function startBot() {
         const sender = msg.key.remoteJid;
         const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").trim();
 
-        // 1. Fitur Parsing Keuangan
-        // Regex diperbaiki di sini agar tidak error
+        // Regex untuk parsing angka (Contoh: 50k, 1jt)
         const regex = /(\d+)\s*(k|jt|juta)?/i;
         const match = text.match(regex);
 
         if (match && sender === NOMOR_AKSES) {
             let nominal = parseInt(match[1]);
             if (match[2]) {
-                if (match[2].toLowerCase() === 'k') nominal *= 1000;
-                if (match[2].toLowerCase().includes('jt')) nominal *= 1000000;
+                const satuan = match[2].toLowerCase();
+                if (satuan === 'k') nominal *= 1000;
+                if (satuan === 'jt' || satuan === 'juta') nominal *= 1000000;
             }
 
-            // 2. Integrasi Google Sheets
             try {
                 const serviceAccountAuth = new JWT({
                     keyFile: './botkeuanganwa-498112-291d9b26247d.json',
@@ -50,7 +49,8 @@ async function startBot() {
                 await sheet.addRow({ Tanggal: new Date().toLocaleDateString(), Nominal: nominal, Keterangan: text });
                 await sock.sendMessage(sender, { text: `✅ Berhasil mencatat: Rp ${nominal.toLocaleString()}` });
             } catch (err) {
-                await sock.sendMessage(sender, { text: "❌ Gagal mencatat ke Google Sheet." });
+                console.error(err);
+                await sock.sendMessage(sender, { text: "❌ Gagal mencatat ke Google Sheet. Periksa file JSON atau ID Spreadsheet." });
             }
         }
     });
@@ -64,4 +64,4 @@ async function startBot() {
     });
 }
 
-startBot();
+startBot().catch(err => console.error(err));
