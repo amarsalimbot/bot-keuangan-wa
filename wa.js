@@ -8,17 +8,30 @@ const pino = require('pino');
 const SPREADSHEET_ID = '1qUkDrgWdqXrqN661OF8SjIRdOeOBQYZoS-9vzjxllv4';
 const GEMINI_API_KEY = 'AQ.Ab8RN6IzFstx5G2VOW1ABVgNq8Hg9gzc1_r2xR4ZI323JoWqMA';
 const NOMOR_AKSES = '6285779381664@s.whatsapp.net';
+const NOMOR_BOT = '6282260991400'; // Nomor yang digunakan untuk pairing
 
-// Inisialisasi AI
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+    
     const sock = makeWASocket({
-        logger: pino({ level: 'info' }),
-        printQRInTerminal: true,
-        auth: state
+        logger: pino({ level: 'silent' }),
+        auth: state,
+        // Ini bagian penting untuk Pairing Code
+        browser: ["Chrome", "Windows", "1.0.0"]
     });
+
+    // Fitur Pairing Code
+    if (!sock.authState.creds.registered) {
+        const phoneNumber = NOMOR_BOT.replace(/[^0-9]/g, '');
+        setTimeout(async () => {
+            const code = await sock.requestPairingCode(phoneNumber);
+            console.log(`\n================================`);
+            console.log(`PAIRING CODE ANDA: ${code}`);
+            console.log(`================================\n`);
+        }, 3000);
+    }
 
     sock.ev.on('creds.update', saveCreds);
 
@@ -55,7 +68,7 @@ async function startBot() {
                 await sock.sendMessage(sender, { text: "❌ Gagal mencatat ke Google Sheet." });
             }
         } 
-        // 2. Fitur AI (Jika bukan pesan transaksi)
+        // 2. AI Gemini
         else if (sender === NOMOR_AKSES) {
             try {
                 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -68,9 +81,10 @@ async function startBot() {
     });
 
     sock.ev.on('connection.update', (update) => {
-        if (update.connection === 'close') {
-            if (update.lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut) startBot();
-        } else if (update.connection === 'open') {
+        const { connection } = update;
+        if (connection === 'close') {
+            startBot();
+        } else if (connection === 'open') {
             console.log('Bot Keuangan Aktif!');
         }
     });
