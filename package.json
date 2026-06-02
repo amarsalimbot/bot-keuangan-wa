@@ -3,9 +3,10 @@
   "version": "1.0.0",
   "main": "wa.js",
   "dependencies": {
+    "@google/generative-ai": "^0.21.0",
     "@whiskeysockets/baileys": "latest",
-    "google-spreadsheet": "latest",
-    "google-auth-library": "latest",
-    "pino": "latest"
+    "google-auth-library": "^9.15.0",
+    "google-spreadsheet": "^4.1.4",
+    "pino": "^9.5.0"
   }
 }
