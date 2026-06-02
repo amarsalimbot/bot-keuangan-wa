@@ -6,10 +6,10 @@
     "start": "node wa.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.9",
-    "google-spreadsheet": "^4.1.4",
-    "google-auth-library": "^9.6.0",
-    "@google/genai": "^0.1.1",
-    "pino": "^8.19.0"
+    "@whiskeysockets/baileys": "latest",
+    "google-spreadsheet": "latest",
+    "google-auth-library": "latest",
+    "@google/genai": "latest",
+    "pino": "latest"
   }
 }
