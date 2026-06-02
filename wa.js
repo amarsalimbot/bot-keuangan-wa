@@ -8,7 +8,6 @@ const pino = require('pino');
 const SPREADSHEET_ID = '1qUkDrgWdqXrqN661OF8SjIRdOeOBQYZoS-9vzjxllv4';
 const GEMINI_API_KEY = 'AQ.Ab8RN6IzFstx5G2VOW1ABVgNq8Hg9gzc1_r2xR4ZI323JoWqMA';
 const NOMOR_AKSES = '6285779381664@s.whatsapp.net';
-const NOMOR_BOT = '6282260991400'; // Nomor yang digunakan untuk pairing
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
@@ -18,22 +17,20 @@ async function startBot() {
     const sock = makeWASocket({
         logger: pino({ level: 'silent' }),
         auth: state,
-        // Ini bagian penting untuk Pairing Code
+        printQRInTerminal: true,
         browser: ["Chrome", "Windows", "1.0.0"]
     });
 
-    // Fitur Pairing Code
-    if (!sock.authState.creds.registered) {
-        const phoneNumber = NOMOR_BOT.replace(/[^0-9]/g, '');
-        setTimeout(async () => {
-            const code = await sock.requestPairingCode(phoneNumber);
-            console.log(`\n================================`);
-            console.log(`PAIRING CODE ANDA: ${code}`);
-            console.log(`================================\n`);
-        }, 3000);
-    }
-
     sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+        if (connection === 'close') {
+            if (lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut) startBot();
+        } else if (connection === 'open') {
+            console.log('✅ Bot Keuangan Aktif!');
+        }
+    });
 
     sock.ev.on('messages.upsert', async m => {
         const msg = m.messages[0];
@@ -77,15 +74,6 @@ async function startBot() {
             } catch (err) {
                 console.error("AI Error:", err);
             }
-        }
-    });
-
-    sock.ev.on('connection.update', (update) => {
-        const { connection } = update;
-        if (connection === 'close') {
-            startBot();
-        } else if (connection === 'open') {
-            console.log('Bot Keuangan Aktif!');
         }
     });
 }
