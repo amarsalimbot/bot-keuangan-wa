@@ -15,9 +15,10 @@ const http = require("http");
 // KONFIGURASI UTAMA
 // =================================================================
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID || "1qUkDrgWdqXrqN661OF8SjIRdOeOBQYZoS-9vzjxllv4";
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "ISI_GEMINI_API_KEY_KAMU";
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "AQ.Ab8RN6IzFstx5G2VOW1ABVgNq8Hg9gzc1_r2xR4ZI323JoWqMA";
+";
 const SERVICE_ACCOUNT_FILE = process.env.SERVICE_ACCOUNT_FILE || "./botkeuanganwa-498112-291d9b26247d.json";
-const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || "6281234567890";
+const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || "6287810044412";
 const APP_TIMEZONE = "Asia/Makassar";
 const PORT = process.env.PORT || 3000;
 
