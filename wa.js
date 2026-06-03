@@ -8,19 +8,25 @@ const {
 const { GoogleSpreadsheet } = require("google-spreadsheet");
 const { JWT } = require("google-auth-library");
 const { GoogleGenAI } = require("@google/genai");
+const qrcode = require("qrcode-terminal");
 const pino = require("pino");
 const http = require("http");
+const readline = require("readline");
 
 // =================================================================
 // KONFIGURASI UTAMA
 // =================================================================
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID || "1qUkDrgWdqXrqN661OF8SjIRdOeOBQYZoS-9vzjxllv4";
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "AQ.Ab8RN6IzFstx5G2VOW1ABVgNq8Hg9gzc1_r2xR4ZI323JoWqMA";
-";
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "ISI_GEMINI_API_KEY_DI_SINI";
 const SERVICE_ACCOUNT_FILE = process.env.SERVICE_ACCOUNT_FILE || "./botkeuanganwa-498112-291d9b26247d.json";
-const WHATSAPP_NUMBER = process.env.WHATSAPP_NUMBER || "6287810044412";
 const APP_TIMEZONE = "Asia/Makassar";
 const PORT = process.env.PORT || 3000;
+
+// Pilihan login WhatsApp:
+// qr   = scan QR di terminal
+// code = kode login WhatsApp / pairing code
+const LOGIN_METHOD = String(process.env.LOGIN_METHOD || "qr").toLowerCase().trim();
+const WHATSAPP_PHONE_NUMBER = String(process.env.WHATSAPP_PHONE_NUMBER || "").replace(/\D/g, "");
 
 const serviceAccount = require(SERVICE_ACCOUNT_FILE);
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
@@ -55,8 +61,40 @@ function formatRupiah(angka) {
     return Number(angka || 0).toLocaleString("id-ID");
 }
 
-function delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+// =================================================================
+// HELPER LOGIN WHATSAPP: QR SCAN / KODE LOGIN WA
+// =================================================================
+function pakaiPairingCode() {
+    return ["code", "kode", "pairing", "pairing-code"].includes(LOGIN_METHOD);
+}
+
+function tanyaTerminal(pertanyaan) {
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+    });
+
+    return new Promise(resolve => {
+        rl.question(pertanyaan, jawaban => {
+            rl.close();
+            resolve(String(jawaban || "").trim());
+        });
+    });
+}
+
+async function ambilNomorWhatsApp() {
+    let nomor = WHATSAPP_PHONE_NUMBER;
+
+    if (!nomor) {
+        nomor = await tanyaTerminal("Masukkan nomor WhatsApp, contoh 6281234567890: ");
+        nomor = String(nomor || "").replace(/\D/g, "");
+    }
+
+    if (!nomor || nomor.length < 10) {
+        throw new Error("Nomor WhatsApp tidak valid. Gunakan format internasional, contoh: 6281234567890");
+    }
+
+    return nomor;
 }
 
 // =================================================================
@@ -70,6 +108,7 @@ function startKeepAliveServer() {
                 status: "online",
                 bot: sockGlobal ? "aktif_atau_mencoba_koneksi" : "belum_aktif",
                 reconnect: jumlahReconnect,
+                login_method: LOGIN_METHOD,
                 time: new Date().toLocaleString("id-ID", { timeZone: APP_TIMEZONE })
             }));
             return;
@@ -596,16 +635,19 @@ Kamu cukup ketik seperti ngobrol biasa.
             }
 
             teksDompet += `\n\n---------------------------------\n💰 *TOTAL:* Rp ${formatRupiah(totalSemua)}`;
+
             return sock.sendMessage(from, { text: teksDompet });
         }
 
         if (cocok("budget", pesan)) {
             const lapBulan = await buatLaporanKeuangan("bulan");
+
             let teksBudget = "🎯 *MONITOR ANGGARAN BULAN INI*\n";
 
             for (const [kategori, limit] of Object.entries(BUDGET_LIMITS)) {
                 const terpakai = lapBulan.detailKategori[kategori] || 0;
                 const persen = ((terpakai / limit) * 100).toFixed(0);
+
                 teksBudget += `\n• *${kategori}*: Rp ${formatRupiah(terpakai)} / Rp ${formatRupiah(limit)} (*${persen}%*)`;
             }
 
@@ -726,7 +768,7 @@ Atau ketik *menu* untuk melihat semua perintah.`
 }
 
 // =================================================================
-// START WHATSAPP BOT + LOGIN KODE PAIRING + AUTO RECONNECT
+// START WHATSAPP BOT + AUTO RECONNECT
 // =================================================================
 async function startBot() {
     if (sedangStart) {
@@ -738,6 +780,7 @@ async function startBot() {
 
     try {
         console.log("🚀 Memulai Bot Keuangan...");
+        console.log(`🔑 Metode login WhatsApp: ${pakaiPairingCode() ? "KODE LOGIN WA" : "QR SCAN"}`);
 
         cleanupSocket();
 
@@ -760,35 +803,28 @@ async function startBot() {
 
         sockGlobal = sock;
 
-        sock.ev.on("creds.update", saveCreds);
+        if (pakaiPairingCode() && !sock.authState.creds.registered) {
+            const nomorWhatsApp = await ambilNomorWhatsApp();
 
-        if (!sock.authState.creds.registered) {
-            if (!WHATSAPP_NUMBER || WHATSAPP_NUMBER === "6281234567890") {
-                console.log("❌ Nomor WhatsApp belum diatur.");
-                console.log("➡️ Ganti WHATSAPP_NUMBER dengan nomor kamu.");
-                console.log("➡️ Format: 62xxxxxxxxxxx tanpa tanda +");
-            } else {
-                console.log(`📱 Meminta kode pairing untuk nomor: ${WHATSAPP_NUMBER}`);
+            console.log(`\n🔐 Meminta kode login WA untuk nomor: ${nomorWhatsApp}`);
 
-                await delay(3000);
+            const kodeLogin = await sock.requestPairingCode(nomorWhatsApp);
+            const kodeRapi = String(kodeLogin).match(/.{1,4}/g)?.join("-") || kodeLogin;
 
-                const pairingCode = await sock.requestPairingCode(WHATSAPP_NUMBER);
-
-                console.log("\n====================================");
-                console.log(`🔐 KODE PAIRING WHATSAPP: ${pairingCode}`);
-                console.log("====================================\n");
-                console.log("Cara login:");
-                console.log("1. Buka WhatsApp di HP");
-                console.log("2. Masuk ke Perangkat Tertaut");
-                console.log("3. Pilih Tautkan dengan nomor telepon");
-                console.log("4. Masukkan kode pairing di atas");
-                console.log("5. Setelah berhasil, bot akan online otomatis");
-            }
+            console.log(`\n✅ KODE LOGIN WA: ${kodeRapi}`);
+            console.log("📱 Buka WhatsApp > Perangkat tertaut > Tautkan dengan nomor telepon, lalu masukkan kode di atas.");
         }
+
+        sock.ev.on("creds.update", saveCreds);
 
         sock.ev.on("connection.update", async ({ connection, qr, lastDisconnect }) => {
             if (qr) {
-                console.log("ℹ️ QR diterima, tapi login disetel memakai kode pairing. Abaikan QR ini.");
+                if (pakaiPairingCode()) {
+                    console.log("📌 QR diterima, tapi LOGIN_METHOD=code aktif. Abaikan QR dan pakai kode login WA di atas.");
+                } else {
+                    console.log("📌 Scan QR berikut untuk login WhatsApp:");
+                    qrcode.generate(qr, { small: true });
+                }
             }
 
             if (connection === "open") {
@@ -815,8 +851,7 @@ async function startBot() {
                 cleanupSocket();
 
                 if (statusCode === DisconnectReason.loggedOut) {
-                    console.log("❌ WhatsApp logout.");
-                    console.log("➡️ Hapus folder session lalu jalankan ulang bot untuk minta kode pairing baru.");
+                    console.log("❌ WhatsApp logout. Hapus folder session lalu login ulang.");
                     return;
                 }
 
@@ -862,7 +897,7 @@ async function startBot() {
 }
 
 // =================================================================
-// ERROR HANDLER GLOBAL
+// ERROR HANDLER GLOBAL AGAR SCRIPT TIDAK MUDAH MATI
 // =================================================================
 process.on("uncaughtException", err => {
     console.error("🔥 uncaughtException:", err.message || err);
