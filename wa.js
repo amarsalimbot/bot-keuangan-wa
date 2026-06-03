@@ -8,10 +8,8 @@ const {
 const { GoogleSpreadsheet } = require("google-spreadsheet");
 const { JWT } = require("google-auth-library");
 const { GoogleGenAI } = require("@google/genai");
-const qrcode = require("qrcode-terminal");
 const pino = require("pino");
 const http = require("http");
-const readline = require("readline");
 
 // =================================================================
 // KONFIGURASI UTAMA
@@ -19,15 +17,10 @@ const readline = require("readline");
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID || "1qUkDrgWdqXrqN661OF8SjIRdOeOBQYZoS-9vzjxllv4";
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "AQ.Ab8RN6IzFstx5G2VOW1ABVgNq8Hg9gzc1_r2xR4ZI323JoWqMA";
 const SERVICE_ACCOUNT_FILE = process.env.SERVICE_ACCOUNT_FILE || "./botkeuanganwa-498112-291d9b26247d.json";
+const WHATSAPP_PHONE_NUMBER = String(process.env.WHATSAPP_PHONE_NUMBER || "").replace(/\D/g, "");
+
 const APP_TIMEZONE = "Asia/Makassar";
 const PORT = process.env.PORT || 3000;
-
-// Railway lebih aman pakai code, bukan QR.
-// Isi variable Railway:
-// LOGIN_METHOD=code
-// WHATSAPP_PHONE_NUMBER=628xxxxxxxxxx
-const LOGIN_METHOD = String(process.env.LOGIN_METHOD || "code").toLowerCase().trim();
-const WHATSAPP_PHONE_NUMBER = String(process.env.WHATSAPP_PHONE_NUMBER || "").replace(/\D/g, "");
 
 const serviceAccount = require(SERVICE_ACCOUNT_FILE);
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
@@ -63,57 +56,20 @@ function formatRupiah(angka) {
 }
 
 // =================================================================
-// HELPER LOGIN WHATSAPP
+// LOGIN WHATSAPP VIA KODE MASUK SAJA
 // =================================================================
-function pakaiPairingCode() {
-    return ["code", "kode", "pairing", "pairing-code"].includes(LOGIN_METHOD);
-}
-
-function tanyaTerminal(pertanyaan) {
-    const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout
-    });
-
-    return new Promise(resolve => {
-        rl.question(pertanyaan, jawaban => {
-            rl.close();
-            resolve(String(jawaban || "").trim());
-        });
-    });
-}
-
 async function ambilNomorWhatsApp() {
-    let nomor = WHATSAPP_PHONE_NUMBER;
-
-    if (!nomor) {
-        nomor = await tanyaTerminal("Masukkan nomor WhatsApp, contoh 6281234567890: ");
-        nomor = String(nomor || "").replace(/\D/g, "");
-    }
+    const nomor = WHATSAPP_PHONE_NUMBER;
 
     if (!nomor || nomor.length < 10) {
-        throw new Error("Nomor WhatsApp tidak valid. Gunakan format internasional, contoh: 6281234567890");
+        throw new Error("WHATSAPP_PHONE_NUMBER belum diisi. Isi di Railway Variables, contoh: 6287810044412");
     }
 
     return nomor;
 }
 
-function tampilkanQrRailway(qr) {
-    console.log("\n==================================================");
-    console.log("SCAN QR WHATSAPP");
-    console.log("Jika QR di Railway tetap berjarak/rusak, pakai LOGIN_METHOD=code.");
-    console.log("==================================================\n");
-
-    // small:false membuat QR lebih besar dan biasanya lebih terbaca di Railway.
-    qrcode.generate(qr, { small: false });
-
-    console.log("\n==================================================");
-    console.log("QR selesai dicetak.");
-    console.log("==================================================\n");
-}
-
 // =================================================================
-// KEEP ALIVE
+// KEEP ALIVE UNTUK RAILWAY
 // =================================================================
 function startKeepAliveServer() {
     const server = http.createServer((req, res) => {
@@ -123,7 +79,7 @@ function startKeepAliveServer() {
                 status: "online",
                 bot: sockGlobal ? "aktif_atau_mencoba_koneksi" : "belum_aktif",
                 reconnect: jumlahReconnect,
-                login_method: LOGIN_METHOD,
+                login_method: "pairing_code",
                 time: new Date().toLocaleString("id-ID", { timeZone: APP_TIMEZONE })
             }));
             return;
@@ -165,6 +121,7 @@ function jadwalkanReconnect(alasan = "koneksi terputus", jedaKhusus = null) {
     if (reconnectTimer) return;
 
     jumlahReconnect++;
+
     const jeda = jedaKhusus || Math.min(5000 + jumlahReconnect * 3000, 60000);
 
     console.log(`Reconnect karena ${alasan}. Coba lagi dalam ${jeda / 1000} detik...`);
@@ -196,7 +153,7 @@ const BUDGET_LIMITS = {
 };
 
 // =================================================================
-// GOOGLE SHEET
+// KONEKSI GOOGLE SHEET
 // =================================================================
 async function getSheet(index = 0) {
     try {
@@ -218,16 +175,31 @@ async function getSheet(index = 0) {
     }
 }
 
+// =================================================================
+// VARIASI RESPON BOT
+// =================================================================
 const dapatkanRespon = (kategori, data = {}) => {
     const listRespon = {
         vnDitolak: [
-            "*VN belum didukung.* Tolong ketik lewat teks biasa dulu ya."
+            "VN belum didukung. Tolong ketik lewat teks biasa dulu ya."
         ],
         suksesMencatat: [
-            `${data.emoji} *DATA BERHASIL DICATAT!*\n\n• *Jenis:* ${data.jenis}\n• *Kategori:* ${data.kategori}\n• *Nominal:* Rp ${data.nominal}\n• *Dompet:* ${data.dompet.toUpperCase()}\n• *Keterangan:* "${data.keterangan}"\n• *Tanggal:* ${data.tanggal}\n\n*Saldo Akhir ${data.dompet.toUpperCase()}:* Rp ${data.saldo_dompet}`
+            `${data.emoji} *DATA BERHASIL DICATAT!*\n\n` +
+            `• *Jenis:* ${data.jenis}\n` +
+            `• *Kategori:* ${data.kategori}\n` +
+            `• *Nominal:* Rp ${data.nominal}\n` +
+            `• *Dompet:* ${data.dompet.toUpperCase()}\n` +
+            `• *Keterangan:* "${data.keterangan}"\n` +
+            `• *Tanggal:* ${data.tanggal}\n\n` +
+            `*Saldo Akhir ${data.dompet.toUpperCase()}:* Rp ${data.saldo_dompet}`
         ],
         suksesUtang: [
-            `*CATATAN UTANG/PIUTANG BERHASIL!*\n\n• *Tipe:* ${data.kategori}\n• *Nama/Keterangan:* ${data.keterangan}\n• *Nominal:* Rp ${data.nominal}\n• *Tanggal:* ${data.tanggal}\n\nJangan lupa ditagih/dibayar tepat waktu ya.`
+            `*CATATAN UTANG/PIUTANG BERHASIL!*\n\n` +
+            `• *Tipe:* ${data.kategori}\n` +
+            `• *Nama/Keterangan:* ${data.keterangan}\n` +
+            `• *Nominal:* Rp ${data.nominal}\n` +
+            `• *Tanggal:* ${data.tanggal}\n\n` +
+            `Jangan lupa ditagih/dibayar tepat waktu ya.`
         ],
         suksesUndo: [
             `*TRANSAKSI TERAKHIR DIHAPUS!*\n\nAktivitas "${data.keterangan}" sebesar *Rp ${formatRupiah(data.nominal)}* sudah dibatalkan.`
@@ -248,7 +220,7 @@ const dapatkanRespon = (kategori, data = {}) => {
 };
 
 // =================================================================
-// ANALISIS PESAN DENGAN GEMINI
+// ANALISIS PESAN DENGAN GEMINI AI
 // =================================================================
 async function analisisPesanDenganAI(teksUser) {
     try {
@@ -269,6 +241,16 @@ Aturan:
 
 2. Kategori wajib salah satu:
 [Konsumsi, Transportasi, Utilitas, Belanja, Pakaian, Tempat Tinggal, Hiburan, Edukasi & Buku, Kesehatan & Perawatan, Anak & Keluarga, Sosial & Sedekah, Pendapatan, Bonus & Sampingan, Investasi & Tabungan, Pajak, Utang, Piutang, Lainnya]
+
+Panduan:
+- Konsumsi: makanan, minuman, kopi, restoran, camilan, gofood.
+- Belanja: supermarket, pasar, sembako, kebutuhan dapur.
+- Utilitas: listrik, air, wifi, pulsa, paket data, streaming.
+- Tempat Tinggal: sewa, kos, kontrakan, cicilan rumah, renovasi.
+- Anak & Keluarga: susu bayi, popok, mainan anak, uang keluarga.
+- Investasi & Tabungan: emas, reksadana, saham, tabungan.
+- Utang: user meminjam uang dari orang/bank. Jenis = Pemasukan.
+- Piutang: user meminjamkan uang ke orang lain. Jenis = Pengeluaran.
 
 3. Jenis hanya boleh:
 - Pemasukan
@@ -317,6 +299,9 @@ Balas HANYA JSON valid. Jangan pakai markdown.`;
     }
 }
 
+// =================================================================
+// FALLBACK PARSING LOKAL
+// =================================================================
 function fallbackParsingLokal(text) {
     const pesan = text.toLowerCase().trim();
 
@@ -371,7 +356,7 @@ function fallbackParsingLokal(text) {
 }
 
 // =================================================================
-// LAPORAN
+// LAPORAN KEUANGAN
 // =================================================================
 async function buatLaporanKeuangan(tipe) {
     const sheet = await getSheet(0);
@@ -409,8 +394,11 @@ async function buatLaporanKeuangan(tipe) {
 
         if (!saldoDompet[dompet]) saldoDompet[dompet] = 0;
 
-        if (jenis === "pemasukan") saldoDompet[dompet] += nominal;
-        else saldoDompet[dompet] -= nominal;
+        if (jenis === "pemasukan") {
+            saldoDompet[dompet] += nominal;
+        } else {
+            saldoDompet[dompet] -= nominal;
+        }
 
         if (valid) {
             if (jenis === "pemasukan") {
@@ -431,12 +419,17 @@ async function buatLaporanKeuangan(tipe) {
     };
 }
 
+// =================================================================
+// RIWAYAT TRANSAKSI
+// =================================================================
 async function ambilRiwayatTransaksi(limit = 15) {
     try {
         const sheet = await getSheet(0);
         const rows = await sheet.getRows();
 
-        if (rows.length === 0) return "*Riwayat transaksi masih kosong.*";
+        if (rows.length === 0) {
+            return "*Riwayat transaksi masih kosong.*";
+        }
 
         let teksRiwayat = `*RIWAYAT TRANSAKSI TERBARU*\n`;
         teksRiwayat += `_Menampilkan ${Math.min(limit, rows.length)} dari ${rows.length} transaksi terakhir_\n`;
@@ -457,10 +450,9 @@ async function ambilRiwayatTransaksi(limit = 15) {
             const keterangan = String(row.get("Keterangan") || "-");
             const dompet = String(row.get("Dompet") || "cash").toUpperCase();
 
-            const emoji = jenis.toLowerCase() === "pemasukan" ? "🟢" : "🔴";
             const simbol = jenis.toLowerCase() === "pemasukan" ? "+" : "-";
 
-            teksRiwayat += `\n${emoji} *[${tglOnly}]* ${keterangan}\n`;
+            teksRiwayat += `\n*[${tglOnly}]* ${keterangan}\n`;
             teksRiwayat += `   *${simbol} Rp ${formatRupiah(nominal)}* | ${kategori} | ${dompet}\n`;
         }
 
@@ -655,8 +647,8 @@ Kamu cukup ketik seperti ngobrol biasa.
             const teksSaldo =
 `*LAPORAN KEUANGAN TOTAL*
 
-🟢 Pemasukan: Rp ${formatRupiah(lap.totalMasuk)}
-🔴 Pengeluaran: Rp ${formatRupiah(lap.totalKeluar)}
+Pemasukan: Rp ${formatRupiah(lap.totalMasuk)}
+Pengeluaran: Rp ${formatRupiah(lap.totalKeluar)}
 -------------------------
 *Saldo Bersih: Rp ${formatRupiah(lap.saldo)}*`;
 
@@ -670,8 +662,8 @@ Kamu cukup ketik seperti ngobrol biasa.
             let teksLap =
 `*STATISTIK ${tipe.toUpperCase()}*
 
-🟢 Masuk: Rp ${formatRupiah(lap.totalMasuk)}
-🔴 Keluar: Rp ${formatRupiah(lap.totalKeluar)}
+Masuk: Rp ${formatRupiah(lap.totalMasuk)}
+Keluar: Rp ${formatRupiah(lap.totalKeluar)}
 -------------------------
 *Bersih: Rp ${formatRupiah(lap.saldo)}*
 
@@ -720,7 +712,7 @@ Kamu cukup ketik seperti ngobrol biasa.
                 });
             } else {
                 balasanBot = dapatkanRespon("suksesMencatat", {
-                    emoji: dataAi.jenis === "Pemasukan" ? "🟢" : "🔴",
+                    emoji: dataAi.jenis === "Pemasukan" ? "Masuk" : "Keluar",
                     jenis: dataAi.jenis,
                     kategori: dataAi.kategori,
                     nominal: formatRupiah(dataAi.nominal),
@@ -758,7 +750,7 @@ Atau ketik *menu* untuk melihat semua perintah.`
 }
 
 // =================================================================
-// START BOT
+// START WHATSAPP BOT + AUTO RECONNECT
 // =================================================================
 async function startBot() {
     if (sedangStart) {
@@ -770,7 +762,7 @@ async function startBot() {
 
     try {
         console.log("Memulai Bot Keuangan...");
-        console.log(`Metode login WhatsApp: ${pakaiPairingCode() ? "KODE LOGIN WA" : "QR SCAN"}`);
+        console.log("Metode login WhatsApp: KODE MASUK / PAIRING CODE");
 
         cleanupSocket();
 
@@ -793,34 +785,42 @@ async function startBot() {
 
         sockGlobal = sock;
 
-        if (pakaiPairingCode() && !sock.authState.creds.registered) {
+        if (!sock.authState.creds.registered) {
             const nomorWhatsApp = await ambilNomorWhatsApp();
 
-            console.log(`\nMeminta kode login WA untuk nomor: ${nomorWhatsApp}`);
+            console.log("");
+            console.log("Meminta kode masuk WhatsApp...");
+            console.log(`Nomor WhatsApp: ${nomorWhatsApp}`);
 
             const kodeLogin = await sock.requestPairingCode(nomorWhatsApp);
             const kodeRapi = String(kodeLogin).match(/.{1,4}/g)?.join("-") || kodeLogin;
 
-            console.log("\n==================================================");
-            console.log(`KODE LOGIN WA: ${kodeRapi}`);
-            console.log("==================================================");
-            console.log("Buka WhatsApp > Perangkat tertaut > Tautkan dengan nomor telepon.");
-            console.log("Pilih login pakai nomor telepon, lalu masukkan kode di atas.\n");
+            console.log("");
+            console.log("========================================");
+            console.log(`KODE MASUK WHATSAPP: ${kodeRapi}`);
+            console.log("========================================");
+            console.log("");
+            console.log("Cara pakai:");
+            console.log("1. Buka WhatsApp di HP");
+            console.log("2. Masuk ke Perangkat tertaut");
+            console.log("3. Pilih Tautkan perangkat");
+            console.log("4. Pilih Tautkan dengan nomor telepon");
+            console.log("5. Masukkan kode di atas");
+            console.log("");
+        } else {
+            console.log("Session WhatsApp sudah terdaftar. Tidak perlu kode masuk lagi.");
         }
 
         sock.ev.on("creds.update", saveCreds);
 
         sock.ev.on("connection.update", async ({ connection, qr, lastDisconnect }) => {
             if (qr) {
-                if (pakaiPairingCode()) {
-                    console.log("QR diterima, tapi LOGIN_METHOD=code aktif. Abaikan QR dan pakai kode login WA.");
-                } else {
-                    tampilkanQrRailway(qr);
-                }
+                console.log("QR diterima tapi diabaikan. Script ini memakai kode masuk WhatsApp.");
             }
 
             if (connection === "open") {
-                console.log("\nBot Keuangan terhubung dan online!");
+                console.log("");
+                console.log("Bot Keuangan terhubung dan online!");
                 sedangStart = false;
                 jumlahReconnect = 0;
 
@@ -843,12 +843,13 @@ async function startBot() {
                 cleanupSocket();
 
                 if (statusCode === DisconnectReason.loggedOut) {
-                    console.log("WhatsApp logout. Hapus folder session lalu login ulang.");
+                    console.log("WhatsApp logout. Hapus folder session lalu deploy ulang untuk login lagi.");
                     return;
                 }
 
                 if (statusCode === 440 || alasanLower.includes("conflict")) {
                     console.log("Conflict terdeteksi. Kemungkinan ada proses bot dobel memakai session yang sama.");
+                    console.log("Menunggu 60 detik agar session lama benar-benar lepas.");
                     jadwalkanReconnect("conflict session WhatsApp", 60000);
                     return;
                 }
@@ -888,7 +889,7 @@ async function startBot() {
 }
 
 // =================================================================
-// ERROR HANDLER
+// ERROR HANDLER GLOBAL
 // =================================================================
 process.on("uncaughtException", err => {
     console.error("uncaughtException:", err.message || err);
