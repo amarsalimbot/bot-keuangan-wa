@@ -14,15 +14,25 @@ const http = require("http");
 // =================================================================
 // KONFIGURASI UTAMA
 // =================================================================
-const SPREADSHEET_ID = process.env.SPREADSHEET_ID || "1qUkDrgWdqXrqN661OF8SjIRdOeOBQYZoS-9vzjxllv4";
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "AQ.Ab8RN6IzFstx5G2VOW1ABVgNq8Hg9gzc1_r2xR4ZI323JoWqMA";
-const SERVICE_ACCOUNT_FILE = process.env.SERVICE_ACCOUNT_FILE || "./botkeuanganwa-498112-291d9b26247d.json";
+const SPREADSHEET_ID = process.env.SPREADSHEET_ID || "";
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const WHATSAPP_PHONE_NUMBER = String(process.env.WHATSAPP_PHONE_NUMBER || "").replace(/\D/g, "");
+const GOOGLE_SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || "";
 
 const APP_TIMEZONE = "Asia/Makassar";
 const PORT = process.env.PORT || 3000;
 
-const serviceAccount = require(SERVICE_ACCOUNT_FILE);
+if (!SPREADSHEET_ID) throw new Error("SPREADSHEET_ID belum diisi di Railway Variables.");
+if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY belum diisi di Railway Variables.");
+if (!GOOGLE_SERVICE_ACCOUNT_JSON) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON belum diisi di Railway Variables.");
+
+let serviceAccount;
+try {
+    serviceAccount = JSON.parse(GOOGLE_SERVICE_ACCOUNT_JSON);
+} catch (err) {
+    throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON tidak valid. Isi harus JSON service account lengkap.");
+}
+
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
 const statusReset = {};
@@ -47,15 +57,12 @@ async function ambilNomorWhatsApp() {
     const nomor = WHATSAPP_PHONE_NUMBER;
 
     if (!nomor || nomor.length < 10) {
-        throw new Error("WHATSAPP_PHONE_NUMBER belum diisi. Isi di Railway Variables, contoh: 6281234567890");
+        throw new Error("WHATSAPP_PHONE_NUMBER belum diisi. Contoh: 6281234567890");
     }
 
     return nomor;
 }
 
-// =================================================================
-// COMMAND BOT
-// =================================================================
 const COMMANDS = {
     menu: /^(menu|help|bantuan|fitur|panduan|cara pakai)$/i,
     dompet: /^(dompet|cek dompet|rekening|akun|saldo dompet)$/i,
@@ -372,11 +379,8 @@ async function buatLaporanKeuangan(tipe) {
 
         if (!saldoDompet[dompet]) saldoDompet[dompet] = 0;
 
-        if (jenis === "pemasukan") {
-            saldoDompet[dompet] += nominal;
-        } else {
-            saldoDompet[dompet] -= nominal;
-        }
+        if (jenis === "pemasukan") saldoDompet[dompet] += nominal;
+        else saldoDompet[dompet] -= nominal;
 
         if (valid) {
             if (jenis === "pemasukan") {
@@ -731,13 +735,8 @@ async function startBot() {
         sock.ev.on("creds.update", saveCreds);
 
         sock.ev.on("connection.update", async ({ connection, qr, lastDisconnect }) => {
-            if (qr) {
-                console.log("QR diterima tapi diabaikan. Script ini memakai kode masuk WhatsApp.");
-            }
-
-            if (connection === "connecting") {
-                console.log("Menghubungkan ke WhatsApp...");
-            }
+            if (qr) console.log("QR diterima tapi diabaikan. Script ini memakai kode masuk WhatsApp.");
+            if (connection === "connecting") console.log("Menghubungkan ke WhatsApp...");
 
             if (connection === "open") {
                 console.log("");
@@ -769,7 +768,6 @@ async function startBot() {
                 }
 
                 if (statusCode === 440 || alasanLower.includes("conflict")) {
-                    console.log("Conflict terdeteksi. Kemungkinan ada proses bot dobel memakai session yang sama.");
                     jadwalkanReconnect("conflict session WhatsApp", 60000);
                     return;
                 }
