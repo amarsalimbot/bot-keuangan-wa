@@ -17,7 +17,7 @@ const readline = require("readline");
 // KONFIGURASI UTAMA
 // =================================================================
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID || "1qUkDrgWdqXrqN661OF8SjIRdOeOBQYZoS-9vzjxllv4";
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "ISI_GEMINI_API_KEY_DI_SINI";
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "AQ.Ab8RN6IzFstx5G2VOW1ABVgNq8Hg9gzc1_r2xR4ZI323JoWqMA";
 const SERVICE_ACCOUNT_FILE = process.env.SERVICE_ACCOUNT_FILE || "./botkeuanganwa-498112-291d9b26247d.json";
 const APP_TIMEZONE = "Asia/Makassar";
 const PORT = process.env.PORT || 3000;
