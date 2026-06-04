@@ -45,12 +45,28 @@ let sudahStartKeepAlive = false;
 // =================================================================
 // HELPER
 // =================================================================
+const HEADER_TRANSAKSI = [
+    "Tanggal",
+    "Jenis",
+    "Kategori",
+    "Nominal",
+    "Keterangan",
+    "Dompet",
+    "Saldo"
+];
+
 function tunggu(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function formatRupiah(angka) {
     return Number(angka || 0).toLocaleString("id-ID");
+}
+
+function ambilNomorDariJid(jid) {
+    return String(jid || "")
+        .split("@")[0]
+        .replace(/\D/g, "");
 }
 
 async function ambilNomorWhatsApp() {
@@ -63,6 +79,58 @@ async function ambilNomorWhatsApp() {
     return nomor;
 }
 
+function buatAuthGoogle() {
+    const correctedPrivateKey = serviceAccount.private_key.replace(/\\n/g, "\n");
+
+    return new JWT({
+        email: serviceAccount.client_email,
+        key: correctedPrivateKey,
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+    });
+}
+
+async function getSheetByNomor(jid) {
+    const nomor = ambilNomorDariJid(jid);
+
+    if (!nomor) {
+        throw new Error("Nomor WhatsApp tidak valid.");
+    }
+
+    const doc = new GoogleSpreadsheet(SPREADSHEET_ID, buatAuthGoogle());
+    await doc.loadInfo();
+
+    let sheet = doc.sheetsByTitle[nomor];
+
+    if (!sheet) {
+        console.log(`📄 Membuat sheet baru untuk nomor: ${nomor}`);
+
+        sheet = await doc.addSheet({
+            title: nomor,
+            headerValues: HEADER_TRANSAKSI
+        });
+
+        console.log(`✅ Sheet ${nomor} berhasil dibuat.`);
+        return sheet;
+    }
+
+    try {
+        await sheet.loadHeaderRow();
+        const headers = sheet.headerValues || [];
+        const headerBelumLengkap = HEADER_TRANSAKSI.some(header => !headers.includes(header));
+
+        if (headerBelumLengkap) {
+            await sheet.setHeaderRow(HEADER_TRANSAKSI);
+        }
+    } catch (err) {
+        await sheet.setHeaderRow(HEADER_TRANSAKSI);
+    }
+
+    return sheet;
+}
+
+// =================================================================
+// COMMAND BOT
+// =================================================================
 const COMMANDS = {
     menu: /^(menu|help|bantuan|fitur|panduan|cara pakai)$/i,
     dompet: /^(dompet|cek dompet|rekening|akun|saldo dompet)$/i,
@@ -161,29 +229,6 @@ const BUDGET_LIMITS = {
 };
 
 // =================================================================
-// GOOGLE SHEET
-// =================================================================
-async function getSheet(index = 0) {
-    try {
-        const correctedPrivateKey = serviceAccount.private_key.replace(/\\n/g, "\n");
-
-        const auth = new JWT({
-            email: serviceAccount.client_email,
-            key: correctedPrivateKey,
-            scopes: ["https://www.googleapis.com/auth/spreadsheets"]
-        });
-
-        const doc = new GoogleSpreadsheet(SPREADSHEET_ID, auth);
-        await doc.loadInfo();
-
-        return doc.sheetsByIndex[index];
-    } catch (err) {
-        console.error(`❌ Gagal terhubung ke Google Sheet indeks ${index}:`, err.message);
-        throw err;
-    }
-}
-
-// =================================================================
 // RESPON BOT
 // =================================================================
 const dapatkanRespon = (kategori, data = {}) => {
@@ -214,15 +259,15 @@ const dapatkanRespon = (kategori, data = {}) => {
             `Aktivitas "${data.keterangan}" sebesar *Rp ${formatRupiah(data.nominal)}* sudah dibatalkan.`
         ],
         gagalUndo: [
-            "📭 Tidak ada transaksi yang bisa dihapus. Google Sheet masih kosong."
+            "📭 Tidak ada transaksi yang bisa dihapus. Riwayat kamu masih kosong."
         ],
         konfirmasiReset: [
             `⚠️ *KONFIRMASI RESET DATA*\n\n` +
-            `Tindakan ini akan menghapus *SELURUH* riwayat keuangan.\n\n` +
+            `Tindakan ini akan menghapus *SELURUH* riwayat keuangan kamu.\n\n` +
             `Kalau yakin, balas: *YA* atau *SETUJU*.`
         ],
         batalReset: [
-            "✅ *Reset dibatalkan.* Data keuangan tetap aman."
+            "✅ *Reset dibatalkan.* Data keuangan kamu tetap aman."
         ]
     };
 
@@ -252,6 +297,16 @@ Aturan:
 
 2. Kategori wajib salah satu:
 [Konsumsi, Transportasi, Utilitas, Belanja, Pakaian, Tempat Tinggal, Hiburan, Edukasi & Buku, Kesehatan & Perawatan, Anak & Keluarga, Sosial & Sedekah, Pendapatan, Bonus & Sampingan, Investasi & Tabungan, Pajak, Utang, Piutang, Lainnya]
+
+Panduan:
+- Konsumsi: makanan, minuman, kopi, restoran, camilan, gofood.
+- Belanja: supermarket, pasar, sembako, kebutuhan dapur.
+- Utilitas: listrik, air, wifi, pulsa, paket data, streaming.
+- Tempat Tinggal: sewa, kos, kontrakan, cicilan rumah, renovasi.
+- Anak & Keluarga: susu bayi, popok, mainan anak, uang keluarga.
+- Investasi & Tabungan: emas, reksadana, saham, tabungan.
+- Utang: user meminjam uang dari orang/bank. Jenis = Pemasukan.
+- Piutang: user meminjamkan uang ke orang lain. Jenis = Pengeluaran.
 
 3. Jenis hanya boleh:
 - Pemasukan
@@ -354,10 +409,10 @@ function fallbackParsingLokal(text) {
 }
 
 // =================================================================
-// LAPORAN DAN SHEET ACTION
+// LAPORAN DAN SHEET ACTION PER NOMOR
 // =================================================================
-async function buatLaporanKeuangan(tipe) {
-    const sheet = await getSheet(0);
+async function buatLaporanKeuangan(tipe, jid) {
+    const sheet = await getSheetByNomor(jid);
     const rows = await sheet.getRows();
 
     let totalMasuk = 0;
@@ -412,8 +467,8 @@ async function buatLaporanKeuangan(tipe) {
     };
 }
 
-async function ambilRiwayatTransaksi(limit = 15) {
-    const sheet = await getSheet(0);
+async function ambilRiwayatTransaksi(limit = 15, jid) {
+    const sheet = await getSheetByNomor(jid);
     const rows = await sheet.getRows();
 
     if (rows.length === 0) return "📭 *Riwayat transaksi masih kosong.*";
@@ -444,9 +499,9 @@ async function ambilRiwayatTransaksi(limit = 15) {
     return teks;
 }
 
-async function simpanKeSheet(dataAi) {
-    const sheet = await getSheet(0);
-    const laporanKini = await buatLaporanKeuangan("semua");
+async function simpanKeSheet(dataAi, jid) {
+    const sheet = await getSheetByNomor(jid);
+    const laporanKini = await buatLaporanKeuangan("semua", jid);
 
     const dompetUser = String(dataAi.dompet || "cash").toLowerCase().trim();
     const saldoDompetLama = laporanKini.saldoDompet[dompetUser] || 0;
@@ -471,7 +526,7 @@ async function simpanKeSheet(dataAi) {
     let budgetAlert = null;
 
     if (dataAi.jenis === "Pengeluaran" && BUDGET_LIMITS[dataAi.kategori]) {
-        const laporanBulan = await buatLaporanKeuangan("bulan");
+        const laporanBulan = await buatLaporanKeuangan("bulan", jid);
         const totalTerpakaiKategori = laporanBulan.detailKategori[dataAi.kategori] || 0;
         const limit = BUDGET_LIMITS[dataAi.kategori];
 
@@ -485,8 +540,8 @@ async function simpanKeSheet(dataAi) {
     return { saldoDompetBaru, budgetAlert };
 }
 
-async function hapusTransaksiTerakhir() {
-    const sheet = await getSheet(0);
+async function hapusTransaksiTerakhir(jid) {
+    const sheet = await getSheetByNomor(jid);
     const rows = await sheet.getRows();
 
     if (rows.length === 0) return null;
@@ -503,8 +558,8 @@ async function hapusTransaksiTerakhir() {
     return dataDihapus;
 }
 
-async function resetSeluruhData() {
-    const sheet = await getSheet(0);
+async function resetSeluruhData(jid) {
+    const sheet = await getSheetByNomor(jid);
     await sheet.clearRows();
 }
 
@@ -532,11 +587,13 @@ async function handleMessage(sock, msg) {
     if (!text) return;
 
     try {
+        await getSheetByNomor(from);
+
         if (statusReset[from] === "MENUNGGU_KONFIRMASI") {
             if (/^(ya|setuju|ok)$/i.test(pesan)) {
                 delete statusReset[from];
-                await resetSeluruhData();
-                return sock.sendMessage(from, { text: "🗑️ *RESET BERHASIL!*\n\nSemua data pembukuan sudah dikosongkan." });
+                await resetSeluruhData(from);
+                return sock.sendMessage(from, { text: "🗑️ *RESET BERHASIL!*\n\nSemua data pembukuan kamu sudah dikosongkan." });
             }
 
             delete statusReset[from];
@@ -576,7 +633,7 @@ Kamu cukup ketik seperti ngobrol biasa ✨
         }
 
         if (cocok("dompet", pesan)) {
-            const lap = await buatLaporanKeuangan("semua");
+            const lap = await buatLaporanKeuangan("semua", from);
             let teks = "👛 *SALDO AKUN & DOMPET*\n";
             let total = 0;
 
@@ -585,12 +642,16 @@ Kamu cukup ketik seperti ngobrol biasa ✨
                 total += saldo;
             }
 
+            if (Object.keys(lap.saldoDompet).length === 0) {
+                teks += "\n📭 Belum ada saldo. Catat pemasukan atau pengeluaran dulu ya.";
+            }
+
             teks += `\n\n---------------------------------\n💰 *TOTAL:* Rp ${formatRupiah(total)}`;
             return sock.sendMessage(from, { text: teks });
         }
 
         if (cocok("budget", pesan)) {
-            const lapBulan = await buatLaporanKeuangan("bulan");
+            const lapBulan = await buatLaporanKeuangan("bulan", from);
             let teks = "🎯 *MONITOR ANGGARAN BULAN INI*\n";
 
             for (const [kategori, limit] of Object.entries(BUDGET_LIMITS)) {
@@ -604,11 +665,11 @@ Kamu cukup ketik seperti ngobrol biasa ✨
         }
 
         if (cocok("riwayat", pesan)) {
-            return sock.sendMessage(from, { text: await ambilRiwayatTransaksi(15) });
+            return sock.sendMessage(from, { text: await ambilRiwayatTransaksi(15, from) });
         }
 
         if (cocok("saldo", pesan)) {
-            const lap = await buatLaporanKeuangan("semua");
+            const lap = await buatLaporanKeuangan("semua", from);
 
             return sock.sendMessage(from, {
                 text:
@@ -623,7 +684,7 @@ Kamu cukup ketik seperti ngobrol biasa ✨
 
         if (cocok("rekap", pesan)) {
             const tipe = pesan.includes("hari") ? "hari" : pesan.includes("minggu") ? "minggu" : "bulan";
-            const lap = await buatLaporanKeuangan(tipe);
+            const lap = await buatLaporanKeuangan(tipe, from);
 
             let teks =
 `📊 *STATISTIK ${tipe.toUpperCase()}*
@@ -647,7 +708,7 @@ Kamu cukup ketik seperti ngobrol biasa ✨
         }
 
         if (cocok("undo", pesan)) {
-            const hasilHapus = await hapusTransaksiTerakhir();
+            const hasilHapus = await hapusTransaksiTerakhir(from);
             if (!hasilHapus) return sock.sendMessage(from, { text: dapatkanRespon("gagalUndo") });
             return sock.sendMessage(from, { text: dapatkanRespon("suksesUndo", hasilHapus) });
         }
@@ -660,7 +721,7 @@ Kamu cukup ketik seperti ngobrol biasa ✨
         const dataAi = await analisisPesanDenganAI(text);
 
         if (dataAi && dataAi.is_transaksi) {
-            const { saldoDompetBaru, budgetAlert } = await simpanKeSheet(dataAi);
+            const { saldoDompetBaru, budgetAlert } = await simpanKeSheet(dataAi, from);
             const kategoriLower = dataAi.kategori.toLowerCase();
 
             let balasanBot = "";
