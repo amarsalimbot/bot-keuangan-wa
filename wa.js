@@ -11,9 +11,6 @@ const { GoogleGenAI } = require("@google/genai");
 const pino = require("pino");
 const http = require("http");
 
-// =================================================================
-// KONFIGURASI UTAMA
-// =================================================================
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID || "";
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const WHATSAPP_PHONE_NUMBER = String(process.env.WHATSAPP_PHONE_NUMBER || "").replace(/\D/g, "");
@@ -42,9 +39,6 @@ let reconnectTimer = null;
 let jumlahReconnect = 0;
 let sudahStartKeepAlive = false;
 
-// =================================================================
-// HELPER
-// =================================================================
 const HEADER_TRANSAKSI = [
     "Tanggal",
     "Jenis",
@@ -64,24 +58,19 @@ function formatRupiah(angka) {
 }
 
 function ambilNomorDariJid(jid) {
-    return String(jid || "")
-        .split("@")[0]
-        .replace(/\D/g, "");
+    return String(jid || "").split("@")[0].replace(/\D/g, "");
 }
 
 async function ambilNomorWhatsApp() {
     const nomor = WHATSAPP_PHONE_NUMBER;
-
     if (!nomor || nomor.length < 10) {
         throw new Error("WHATSAPP_PHONE_NUMBER belum diisi. Contoh: 6281234567890");
     }
-
     return nomor;
 }
 
 function buatAuthGoogle() {
     const correctedPrivateKey = serviceAccount.private_key.replace(/\\n/g, "\n");
-
     return new JWT({
         email: serviceAccount.client_email,
         key: correctedPrivateKey,
@@ -91,10 +80,7 @@ function buatAuthGoogle() {
 
 async function getSheetByNomor(jid) {
     const nomor = ambilNomorDariJid(jid);
-
-    if (!nomor) {
-        throw new Error("Nomor WhatsApp tidak valid.");
-    }
+    if (!nomor) throw new Error("Nomor WhatsApp tidak valid.");
 
     const doc = new GoogleSpreadsheet(SPREADSHEET_ID, buatAuthGoogle());
     await doc.loadInfo();
@@ -103,13 +89,10 @@ async function getSheetByNomor(jid) {
 
     if (!sheet) {
         console.log(`Membuat sheet baru untuk nomor: ${nomor}`);
-
         sheet = await doc.addSheet({
             title: nomor,
             headerValues: HEADER_TRANSAKSI
         });
-
-        console.log(`Sheet ${nomor} berhasil dibuat.`);
         return sheet;
     }
 
@@ -117,10 +100,7 @@ async function getSheetByNomor(jid) {
         await sheet.loadHeaderRow();
         const headers = sheet.headerValues || [];
         const headerBelumLengkap = HEADER_TRANSAKSI.some(header => !headers.includes(header));
-
-        if (headerBelumLengkap) {
-            await sheet.setHeaderRow(HEADER_TRANSAKSI);
-        }
+        if (headerBelumLengkap) await sheet.setHeaderRow(HEADER_TRANSAKSI);
     } catch (err) {
         await sheet.setHeaderRow(HEADER_TRANSAKSI);
     }
@@ -128,9 +108,6 @@ async function getSheetByNomor(jid) {
     return sheet;
 }
 
-// =================================================================
-// COMMAND BOT
-// =================================================================
 const COMMANDS = {
     menu: /^(menu|help|bantuan|fitur|panduan|cara pakai)$/i,
     dompet: /^(dompet|cek dompet|rekening|akun|saldo dompet)$/i,
@@ -146,55 +123,132 @@ function cocok(perintah, pesan) {
     return COMMANDS[perintah].test(pesan);
 }
 
-function unwrapMessageContent(message) {
-    let current = message || {};
+function normalisasiJenis(jenis) {
+    const teks = String(jenis || "").toLowerCase().trim();
+    if (["pemasukan", "masuk", "income", "pendapatan"].includes(teks)) return "Pemasukan";
+    if (["pengeluaran", "keluar", "expense", "belanja"].includes(teks)) return "Pengeluaran";
+    return "Pengeluaran";
+}
 
-    for (let i = 0; i < 10; i++) {
-        if (current.ephemeralMessage?.message) {
-            current = current.ephemeralMessage.message;
-        } else if (current.viewOnceMessage?.message) {
-            current = current.viewOnceMessage.message;
-        } else if (current.viewOnceMessageV2?.message) {
-            current = current.viewOnceMessageV2.message;
-        } else if (current.documentWithCaptionMessage?.message) {
-            current = current.documentWithCaptionMessage.message;
-        } else if (current.deviceSentMessage?.message) {
-            current = current.deviceSentMessage.message;
-        } else if (current.editedMessage?.message) {
-            current = current.editedMessage.message;
-        } else {
-            break;
-        }
+function parseNominalDariTeks(teks) {
+    const match = String(teks || "").match(/(?:rp\s*)?(\d+(?:[\.,]\d+)?)\s*(k|rb|ribu|jt|juta|m|mn|milyar|miliar)?\b/i);
+    if (!match) return null;
+
+    let nominal = Number(String(match[1]).replace(",", "."));
+    const satuan = String(match[2] || "").toLowerCase();
+
+    if (["k", "rb", "ribu"].includes(satuan)) nominal *= 1000;
+    if (["jt", "juta"].includes(satuan)) nominal *= 1000000;
+    if (["m", "mn", "milyar", "miliar"].includes(satuan)) nominal *= 1000000000;
+
+    if (!Number.isFinite(nominal) || nominal <= 0) return null;
+
+    return {
+        nominal: Math.round(nominal),
+        raw: match[0]
+    };
+}
+
+function deteksiDompet(teks) {
+    const pesan = String(teks || "").toLowerCase();
+
+    if (/\b(shopeepay|spay)\b/.test(pesan)) return "shopeepay";
+    if (/\bgopay\b/.test(pesan)) return "gopay";
+    if (/\bovo\b/.test(pesan)) return "ovo";
+    if (/\bdana\b/.test(pesan)) return "dana";
+    if (/\bbca\b/.test(pesan)) return "bca";
+    if (/\bbri\b/.test(pesan)) return "bri";
+    if (/\bbni\b/.test(pesan)) return "bni";
+    if (/\bmandiri\b/.test(pesan)) return "mandiri";
+    if (/\b(cash|tunai)\b/.test(pesan)) return "cash";
+
+    return "cash";
+}
+
+function deteksiKategori(teks, jenis) {
+    const pesan = String(teks || "").toLowerCase();
+
+    if (jenis === "Pemasukan") {
+        if (/\b(bonus|thr|komisi|sampingan|freelance)\b/.test(pesan)) return "Bonus & Sampingan";
+        if (/\b(investasi|dividen|bunga|tabungan)\b/.test(pesan)) return "Investasi & Tabungan";
+        if (/\b(utang|pinjam dari|dipinjami)\b/.test(pesan)) return "Utang";
+        return "Pendapatan";
     }
 
-    return current;
+    if (/\b(makan|minum|kopi|nasi|ayam|resto|gofood|grabfood|camilan)\b/.test(pesan)) return "Konsumsi";
+    if (/\b(bensin|parkir|tol|grab|gojek|transport|ojek|taxi|taksi)\b/.test(pesan)) return "Transportasi";
+    if (/\b(wifi|listrik|air|pulsa|paket data|internet|streaming)\b/.test(pesan)) return "Utilitas";
+    if (/\b(belanja|sembako|pasar|supermarket|kebutuhan dapur)\b/.test(pesan)) return "Belanja";
+    if (/\b(baju|celana|sepatu|pakaian)\b/.test(pesan)) return "Pakaian";
+    if (/\b(sewa|kos|kontrakan|cicilan rumah|renovasi)\b/.test(pesan)) return "Tempat Tinggal";
+    if (/\b(game|film|hiburan|liburan|nonton)\b/.test(pesan)) return "Hiburan";
+    if (/\b(buku|kursus|sekolah|kuliah|edukasi)\b/.test(pesan)) return "Edukasi & Buku";
+    if (/\b(obat|dokter|klinik|rumah sakit|vitamin|perawatan)\b/.test(pesan)) return "Kesehatan & Perawatan";
+    if (/\b(susu|anak|popok|mainan anak|keluarga)\b/.test(pesan)) return "Anak & Keluarga";
+    if (/\b(sedekah|donasi|zakat|sosial)\b/.test(pesan)) return "Sosial & Sedekah";
+    if (/\b(pajak|pph|ppn)\b/.test(pesan)) return "Pajak";
+    if (/\b(piutang|meminjamkan|pinjamkan)\b/.test(pesan)) return "Piutang";
+
+    return "Lainnya";
 }
 
-function ambilTeksPesan(message) {
-    const isi = unwrapMessageContent(message);
-
-    return String(
-        isi.conversation ||
-        isi.extendedTextMessage?.text ||
-        isi.imageMessage?.caption ||
-        isi.videoMessage?.caption ||
-        isi.documentMessage?.caption ||
-        isi.buttonsResponseMessage?.selectedButtonId ||
-        isi.buttonsResponseMessage?.selectedDisplayText ||
-        isi.listResponseMessage?.singleSelectReply?.selectedRowId ||
-        isi.templateButtonReplyMessage?.selectedId ||
-        ""
-    ).trim();
+function tanggalHariIni() {
+    return new Date().toLocaleDateString("id-ID", {
+        timeZone: APP_TIMEZONE,
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric"
+    }).replace(/\./g, "/");
 }
 
-function adaAudioPesan(message) {
-    const isi = unwrapMessageContent(message);
-    return Boolean(isi.audioMessage || isi.pttMessage);
+function parsingPerintahTransaksi(teksUser) {
+    const textAsli = String(teksUser || "").trim();
+
+    const awalanPemasukan = /^(pemasukan|masuk|income|pendapatan|catat pemasukan|tambah pemasukan)\b/i;
+    const awalanPengeluaran = /^(pengeluaran|keluar|expense|catat pengeluaran|tambah pengeluaran)\b/i;
+
+    let jenis = null;
+    let sisa = textAsli;
+
+    if (awalanPemasukan.test(textAsli)) {
+        jenis = "Pemasukan";
+        sisa = textAsli.replace(awalanPemasukan, "").trim();
+    } else if (awalanPengeluaran.test(textAsli)) {
+        jenis = "Pengeluaran";
+        sisa = textAsli.replace(awalanPengeluaran, "").trim();
+    } else if (/\b(gaji|bonus|terima|dapat|masuk|pendapatan|income)\b/i.test(textAsli)) {
+        jenis = "Pemasukan";
+    } else if (/\b(beli|bayar|keluar|jajan|belanja)\b/i.test(textAsli)) {
+        jenis = "Pengeluaran";
+    }
+
+    if (!jenis) return { is_transaksi: false };
+
+    const hasilNominal = parseNominalDariTeks(sisa || textAsli);
+    if (!hasilNominal) return { is_transaksi: false };
+
+    const dompet = deteksiDompet(textAsli);
+    const kategori = deteksiKategori(textAsli, jenis);
+
+    let keterangan = (sisa || textAsli)
+        .replace(hasilNominal.raw, "")
+        .replace(/\b(ke|dari|via|pakai|dengan)\s+(cash|tunai|bca|bri|bni|mandiri|gopay|ovo|dana|spay|shopeepay)\b/ig, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    if (!keterangan) keterangan = textAsli;
+
+    return {
+        is_transaksi: true,
+        jenis,
+        nominal: hasilNominal.nominal,
+        kategori,
+        keterangan,
+        dompet,
+        tanggal: tanggalHariIni()
+    };
 }
 
-// =================================================================
-// KEEP ALIVE RAILWAY
-// =================================================================
 function startKeepAliveServer() {
     const server = http.createServer((req, res) => {
         if (req.url === "/" || req.url === "/health") {
@@ -256,9 +310,6 @@ function jadwalkanReconnect(alasan = "koneksi terputus", jedaKhusus = null) {
     }, jeda);
 }
 
-// =================================================================
-// BATAS ANGGARAN
-// =================================================================
 const BUDGET_LIMITS = {
     "Konsumsi": 3000000,
     "Belanja": 1500000,
@@ -274,13 +325,10 @@ const BUDGET_LIMITS = {
     "Pajak": 1000000
 };
 
-// =================================================================
-// RESPON BOT
-// =================================================================
 const dapatkanRespon = (kategori, data = {}) => {
     const listRespon = {
         vnDitolak: [
-            "*VN belum didukung.*\n\nTolong ketik lewat teks biasa dulu ya."
+            "VN belum didukung.\n\nTolong ketik lewat teks biasa dulu ya."
         ],
         suksesMencatat: [
             `${data.emoji} *DATA BERHASIL DICATAT!*\n\n` +
@@ -321,9 +369,6 @@ const dapatkanRespon = (kategori, data = {}) => {
     return opsi[Math.floor(Math.random() * opsi.length)];
 };
 
-// =================================================================
-// AI PARSING
-// =================================================================
 async function analisisPesanDenganAI(teksUser) {
     try {
         const waktuSistem = new Date().toLocaleString("id-ID", { timeZone: APP_TIMEZONE });
@@ -343,16 +388,6 @@ Aturan:
 
 2. Kategori wajib salah satu:
 [Konsumsi, Transportasi, Utilitas, Belanja, Pakaian, Tempat Tinggal, Hiburan, Edukasi & Buku, Kesehatan & Perawatan, Anak & Keluarga, Sosial & Sedekah, Pendapatan, Bonus & Sampingan, Investasi & Tabungan, Pajak, Utang, Piutang, Lainnya]
-
-Panduan:
-- Konsumsi: makanan, minuman, kopi, restoran, camilan, gofood.
-- Belanja: supermarket, pasar, sembako, kebutuhan dapur.
-- Utilitas: listrik, air, wifi, pulsa, paket data, streaming.
-- Tempat Tinggal: sewa, kos, kontrakan, cicilan rumah, renovasi.
-- Anak & Keluarga: susu bayi, popok, mainan anak, uang keluarga.
-- Investasi & Tabungan: emas, reksadana, saham, tabungan.
-- Utang: user meminjam uang dari orang/bank. Jenis = Pemasukan.
-- Piutang: user meminjamkan uang ke orang lain. Jenis = Pengeluaran.
 
 3. Jenis hanya boleh:
 - Pemasukan
@@ -392,7 +427,7 @@ Balas HANYA JSON valid. Jangan pakai markdown.`;
         hasil.dompet = String(hasil.dompet || "cash").toLowerCase().trim();
         hasil.keterangan = String(hasil.keterangan || teksUser).trim();
         hasil.kategori = String(hasil.kategori || "Lainnya").trim();
-        hasil.jenis = String(hasil.jenis || "Pengeluaran").trim();
+        hasil.jenis = normalisasiJenis(hasil.jenis || "Pengeluaran");
 
         return hasil;
     } catch (error) {
@@ -402,61 +437,34 @@ Balas HANYA JSON valid. Jangan pakai markdown.`;
 }
 
 function fallbackParsingLokal(text) {
-    const pesan = text.toLowerCase().trim();
+    const pesan = String(text || "").toLowerCase().trim();
 
-    const match = pesan.match(/(\d+[\.,]?\d*)\s*(k|jt|juta)?/i);
-    if (!match) return { is_transaksi: false };
+    const hasilNominal = parseNominalDariTeks(pesan);
+    if (!hasilNominal) return { is_transaksi: false };
 
-    let nominal = parseFloat(match[1].replace(",", "."));
+    const nominal = hasilNominal.nominal;
+    const dompet = deteksiDompet(pesan);
 
-    if (match[2] === "k") nominal *= 1000;
-    if (match[2] === "jt" || match[2] === "juta") nominal *= 1000000;
+    const kataPemasukan = ["gaji", "bonus", "terima", "masuk", "dapat", "pendapatan", "income", "pemasukan"];
+    const kataPengeluaran = ["beli", "bayar", "keluar", "jajan", "belanja", "pengeluaran"];
 
-    let dompet = "cash";
-    if (pesan.includes("bca")) dompet = "bca";
-    if (pesan.includes("bri")) dompet = "bri";
-    if (pesan.includes("bni")) dompet = "bni";
-    if (pesan.includes("mandiri")) dompet = "mandiri";
-    if (pesan.includes("gopay")) dompet = "gopay";
-    if (pesan.includes("ovo")) dompet = "ovo";
-    if (pesan.includes("dana")) dompet = "dana";
-    if (pesan.includes("spay") || pesan.includes("shopeepay")) dompet = "shopeepay";
+    const jenis = kataPemasukan.some(kata => pesan.includes(kata)) && !kataPengeluaran.some(kata => pesan.includes(kata))
+        ? "Pemasukan"
+        : "Pengeluaran";
 
-    const kataPemasukan = ["gaji", "bonus", "terima", "masuk", "dapat", "pendapatan", "income"];
-    const jenis = kataPemasukan.some(kata => pesan.includes(kata)) ? "Pemasukan" : "Pengeluaran";
-
-    let kategori = jenis === "Pemasukan" ? "Pendapatan" : "Lainnya";
-
-    if (pesan.includes("makan") || pesan.includes("kopi") || pesan.includes("nasi") || pesan.includes("minum")) kategori = "Konsumsi";
-    if (pesan.includes("bensin") || pesan.includes("grab") || pesan.includes("gojek") || pesan.includes("transport")) kategori = "Transportasi";
-    if (pesan.includes("wifi") || pesan.includes("listrik") || pesan.includes("pulsa") || pesan.includes("data")) kategori = "Utilitas";
-    if (pesan.includes("belanja") || pesan.includes("sembako") || pesan.includes("pasar")) kategori = "Belanja";
-    if (pesan.includes("susu") || pesan.includes("anak") || pesan.includes("popok")) kategori = "Anak & Keluarga";
-    if (pesan.includes("utang") || pesan.includes("pinjam")) kategori = "Utang";
-    if (pesan.includes("piutang") || pesan.includes("meminjamkan")) kategori = "Piutang";
-    if (pesan.includes("bonus")) kategori = "Bonus & Sampingan";
-
-    const tanggal = new Date().toLocaleDateString("id-ID", {
-        timeZone: APP_TIMEZONE,
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric"
-    }).replace(/\./g, "/");
+    const kategori = deteksiKategori(pesan, jenis);
 
     return {
         is_transaksi: true,
         jenis,
-        nominal: Math.round(nominal),
+        nominal,
         kategori,
         keterangan: text,
         dompet,
-        tanggal
+        tanggal: tanggalHariIni()
     };
 }
 
-// =================================================================
-// LAPORAN DAN SHEET ACTION PER NOMOR
-// =================================================================
 async function buatLaporanKeuangan(tipe, jid) {
     const sheet = await getSheetByNomor(jid);
     const rows = await sheet.getRows();
@@ -609,27 +617,29 @@ async function resetSeluruhData(jid) {
     await sheet.clearRows();
 }
 
-// =================================================================
-// HANDLER PESAN
-// =================================================================
 async function handleMessage(sock, msg) {
     if (!msg.message || msg.key.fromMe) return;
 
     const from = msg.key.remoteJid;
-    if (!from || from === "status@broadcast") return;
 
-    const text = ambilTeksPesan(msg.message);
+    const text =
+        msg.message.conversation ||
+        msg.message.extendedTextMessage?.text ||
+        msg.message.imageMessage?.caption ||
+        msg.message.videoMessage?.caption ||
+        "";
+
     const pesan = text.toLowerCase().trim();
 
-    console.log(`Pesan masuk dari ${ambilNomorDariJid(from)}: ${text || "[non-teks]"}`);
-
-    if (!text && adaAudioPesan(msg.message)) {
+    if (!text && msg.message.audioMessage) {
         return sock.sendMessage(from, { text: dapatkanRespon("vnDitolak") });
     }
 
     if (!text) return;
 
     try {
+        await getSheetByNomor(from);
+
         if (statusReset[from] === "MENUNGGU_KONFIRMASI") {
             if (/^(ya|setuju|ok)$/i.test(pesan)) {
                 delete statusReset[from];
@@ -649,27 +659,29 @@ async function handleMessage(sock, msg) {
 Kamu cukup ketik seperti ngobrol biasa.
 
 *Contoh Pengeluaran:*
+- pengeluaran 25k makan cash
 - beli nasi goreng 25k cash
 - bayar wifi 350k gopay
-- beli susu anak 150k mandiri
+- keluar 100rb bensin mandiri
 
 *Contoh Pemasukan:*
+- pemasukan 5jt gaji ke bca
 - gaji masuk 5jt ke bca
-- dapat bonus 750k cash
+- masuk 750k bonus dana
 - terima transfer 1jt mandiri
 
 *Perintah Laporan:*
-- *hari ini* - rekap transaksi hari ini
-- *minggu ini* - rekap 7 hari terakhir
-- *bulan ini* - rekap bulan berjalan
-- *saldo* - total pemasukan, pengeluaran, dan saldo
-- *dompet* - saldo tiap akun/dompet
-- *budget* - cek batas anggaran
-- *riwayat* - lihat transaksi terakhir
+- *hari ini*
+- *minggu ini*
+- *bulan ini*
+- *saldo*
+- *dompet*
+- *budget*
+- *riwayat*
 
 *Perintah Darurat:*
-- *undo* - hapus transaksi terakhir
-- *#reset* - kosongkan semua data`
+- *undo*
+- *#reset*`
             });
         }
 
@@ -698,8 +710,7 @@ Kamu cukup ketik seperti ngobrol biasa.
             for (const [kategori, limit] of Object.entries(BUDGET_LIMITS)) {
                 const terpakai = lapBulan.detailKategori[kategori] || 0;
                 const persen = ((terpakai / limit) * 100).toFixed(0);
-                const status = Number(persen) >= 100 ? "OVER" : Number(persen) >= 85 ? "WASPADA" : "AMAN";
-                teks += `\n${status} - *${kategori}*: Rp ${formatRupiah(terpakai)} / Rp ${formatRupiah(limit)} (*${persen}%*)`;
+                teks += `\n*${kategori}*: Rp ${formatRupiah(terpakai)} / Rp ${formatRupiah(limit)} (*${persen}%*)`;
             }
 
             return sock.sendMessage(from, { text: teks });
@@ -759,7 +770,8 @@ Keluar: Rp ${formatRupiah(lap.totalKeluar)}
             return sock.sendMessage(from, { text: dapatkanRespon("konfirmasiReset") });
         }
 
-        const dataAi = await analisisPesanDenganAI(text);
+        let dataAi = parsingPerintahTransaksi(text);
+        if (!dataAi.is_transaksi) dataAi = await analisisPesanDenganAI(text);
 
         if (dataAi && dataAi.is_transaksi) {
             const { saldoDompetBaru, budgetAlert } = await simpanKeSheet(dataAi, from);
@@ -776,7 +788,7 @@ Keluar: Rp ${formatRupiah(lap.totalKeluar)}
                 });
             } else {
                 balasanBot = dapatkanRespon("suksesMencatat", {
-                    emoji: dataAi.jenis === "Pemasukan" ? "+" : "-",
+                    emoji: dataAi.jenis === "Pemasukan" ? "[MASUK]" : "[KELUAR]",
                     jenis: dataAi.jenis,
                     kategori: dataAi.kategori,
                     nominal: formatRupiah(dataAi.nominal),
@@ -796,8 +808,8 @@ Keluar: Rp ${formatRupiah(lap.totalKeluar)}
 `*Aku belum paham maksudnya.*
 
 Coba ketik transaksi seperti:
-- beli kopi 20k cash
-- gaji masuk 5jt bca
+- pengeluaran 25k makan cash
+- pemasukan 5jt gaji ke bca
 - bayar listrik 300k gopay
 
 Atau ketik *menu* untuk melihat semua perintah.`
@@ -810,9 +822,6 @@ Atau ketik *menu* untuk melihat semua perintah.`
     }
 }
 
-// =================================================================
-// START WHATSAPP BOT VIA KODE MASUK
-// =================================================================
 async function startBot() {
     if (sedangStart) {
         console.log("Bot sedang start, proses dobel dilewati.");
@@ -900,13 +909,11 @@ async function startBot() {
             }
         });
 
-        sock.ev.on("messages.upsert", async ({ messages, type }) => {
+        sock.ev.on("messages.upsert", async ({ messages }) => {
             try {
-                if (type && type !== "notify") return;
-
-                for (const msg of messages || []) {
-                    await handleMessage(sock, msg);
-                }
+                const msg = messages?.[0];
+                if (!msg) return;
+                await handleMessage(sock, msg);
             } catch (err) {
                 console.error("Error messages.upsert:", err.message || err);
             }
@@ -960,9 +967,6 @@ async function startBot() {
     }
 }
 
-// =================================================================
-// ERROR HANDLER GLOBAL
-// =================================================================
 process.on("uncaughtException", err => {
     console.error("uncaughtException:", err.message || err);
     jadwalkanReconnect("uncaughtException", 15000);
@@ -985,9 +989,6 @@ process.on("SIGTERM", () => {
     process.exit(0);
 });
 
-// =================================================================
-// JALANKAN BOT
-// =================================================================
 if (!sudahStartKeepAlive) {
     sudahStartKeepAlive = true;
     startKeepAliveServer();
