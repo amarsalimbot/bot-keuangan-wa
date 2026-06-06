@@ -63,14 +63,17 @@ function ambilNomorDariJid(jid) {
 
 async function ambilNomorWhatsApp() {
     const nomor = WHATSAPP_PHONE_NUMBER;
+
     if (!nomor || nomor.length < 10) {
         throw new Error("WHATSAPP_PHONE_NUMBER belum diisi. Contoh: 6281234567890");
     }
+
     return nomor;
 }
 
 function buatAuthGoogle() {
     const correctedPrivateKey = serviceAccount.private_key.replace(/\\n/g, "\n");
+
     return new JWT({
         email: serviceAccount.client_email,
         key: correctedPrivateKey,
@@ -80,7 +83,10 @@ function buatAuthGoogle() {
 
 async function getSheetByNomor(jid) {
     const nomor = ambilNomorDariJid(jid);
-    if (!nomor) throw new Error("Nomor WhatsApp tidak valid.");
+
+    if (!nomor) {
+        throw new Error("Nomor WhatsApp tidak valid.");
+    }
 
     const doc = new GoogleSpreadsheet(SPREADSHEET_ID, buatAuthGoogle());
     await doc.loadInfo();
@@ -88,11 +94,14 @@ async function getSheetByNomor(jid) {
     let sheet = doc.sheetsByTitle[nomor];
 
     if (!sheet) {
-        console.log(`Membuat sheet baru untuk nomor: ${nomor}`);
+        console.log(`📄 Membuat sheet baru untuk nomor: ${nomor}`);
+
         sheet = await doc.addSheet({
             title: nomor,
             headerValues: HEADER_TRANSAKSI
         });
+
+        console.log(`✅ Sheet ${nomor} berhasil dibuat.`);
         return sheet;
     }
 
@@ -100,7 +109,10 @@ async function getSheetByNomor(jid) {
         await sheet.loadHeaderRow();
         const headers = sheet.headerValues || [];
         const headerBelumLengkap = HEADER_TRANSAKSI.some(header => !headers.includes(header));
-        if (headerBelumLengkap) await sheet.setHeaderRow(HEADER_TRANSAKSI);
+
+        if (headerBelumLengkap) {
+            await sheet.setHeaderRow(HEADER_TRANSAKSI);
+        }
     } catch (err) {
         await sheet.setHeaderRow(HEADER_TRANSAKSI);
     }
@@ -125,8 +137,10 @@ function cocok(perintah, pesan) {
 
 function normalisasiJenis(jenis) {
     const teks = String(jenis || "").toLowerCase().trim();
+
     if (["pemasukan", "masuk", "income", "pendapatan"].includes(teks)) return "Pemasukan";
     if (["pengeluaran", "keluar", "expense", "belanja"].includes(teks)) return "Pengeluaran";
+
     return "Pengeluaran";
 }
 
@@ -268,11 +282,11 @@ function startKeepAliveServer() {
     });
 
     server.listen(PORT, () => {
-        console.log(`Keep-alive server aktif di port ${PORT}`);
+        console.log(`🌐 Keep-alive server aktif di port ${PORT}`);
     });
 
     setInterval(() => {
-        console.log(`Bot masih hidup: ${new Date().toLocaleString("id-ID", { timeZone: APP_TIMEZONE })}`);
+        console.log(`💓 Bot masih hidup: ${new Date().toLocaleString("id-ID", { timeZone: APP_TIMEZONE })}`);
     }, 5 * 60 * 1000);
 }
 
@@ -288,7 +302,7 @@ function cleanupSocket() {
             sockGlobal.ws.close();
         }
     } catch (err) {
-        console.log("Cleanup socket dilewati:", err.message);
+        console.log("⚠️ Cleanup socket dilewati:", err.message);
     }
 
     sockGlobal = null;
@@ -300,7 +314,7 @@ function jadwalkanReconnect(alasan = "koneksi terputus", jedaKhusus = null) {
     jumlahReconnect++;
     const jeda = jedaKhusus || Math.min(5000 + jumlahReconnect * 3000, 60000);
 
-    console.log(`Reconnect karena ${alasan}. Coba lagi dalam ${jeda / 1000} detik...`);
+    console.log(`🔄 Reconnect karena ${alasan}. Coba lagi dalam ${jeda / 1000} detik...`);
 
     reconnectTimer = setTimeout(async () => {
         reconnectTimer = null;
@@ -328,44 +342,44 @@ const BUDGET_LIMITS = {
 const dapatkanRespon = (kategori, data = {}) => {
     const listRespon = {
         vnDitolak: [
-            "VN belum didukung.\n\nTolong ketik lewat teks biasa dulu ya."
+            "🎙️ *VN belum didukung.*\n\nTolong ketik lewat teks biasa dulu ya 🙏"
         ],
         suksesMencatat: [
             `${data.emoji} *DATA BERHASIL DICATAT!*\n\n` +
-            `*Jenis:* ${data.jenis}\n` +
-            `*Kategori:* ${data.kategori}\n` +
-            `*Nominal:* Rp ${data.nominal}\n` +
-            `*Dompet:* ${data.dompet.toUpperCase()}\n` +
-            `*Keterangan:* "${data.keterangan}"\n` +
-            `*Tanggal:* ${data.tanggal}\n\n` +
-            `*Saldo Akhir ${data.dompet.toUpperCase()}:* Rp ${data.saldo_dompet}`
+            `📌 *Jenis:* ${data.jenis}\n` +
+            `🏷️ *Kategori:* ${data.kategori}\n` +
+            `💰 *Nominal:* Rp ${data.nominal}\n` +
+            `👛 *Dompet:* ${data.dompet.toUpperCase()}\n` +
+            `📝 *Keterangan:* "${data.keterangan}"\n` +
+            `📅 *Tanggal:* ${data.tanggal}\n\n` +
+            `🧮 *Saldo Akhir ${data.dompet.toUpperCase()}:* Rp ${data.saldo_dompet}`
         ],
         suksesUtang: [
-            `*CATATAN UTANG/PIUTANG BERHASIL!*\n\n` +
-            `*Tipe:* ${data.kategori}\n` +
-            `*Nama/Keterangan:* ${data.keterangan}\n` +
-            `*Nominal:* Rp ${data.nominal}\n` +
-            `*Tanggal:* ${data.tanggal}\n\n` +
-            `Jangan lupa ditagih/dibayar tepat waktu ya.`
+            `🧾 *CATATAN UTANG/PIUTANG BERHASIL!*\n\n` +
+            `📌 *Tipe:* ${data.kategori}\n` +
+            `📝 *Nama/Keterangan:* ${data.keterangan}\n` +
+            `💰 *Nominal:* Rp ${data.nominal}\n` +
+            `📅 *Tanggal:* ${data.tanggal}\n\n` +
+            `⏰ Jangan lupa ditagih/dibayar tepat waktu ya.`
         ],
         suksesUndo: [
-            `*TRANSAKSI TERAKHIR DIHAPUS!*\n\n` +
+            `↩️ *TRANSAKSI TERAKHIR DIHAPUS!*\n\n` +
             `Aktivitas "${data.keterangan}" sebesar *Rp ${formatRupiah(data.nominal)}* sudah dibatalkan.`
         ],
         gagalUndo: [
-            "Tidak ada transaksi yang bisa dihapus. Riwayat kamu masih kosong."
+            "📭 Tidak ada transaksi yang bisa dihapus. Riwayat kamu masih kosong."
         ],
         konfirmasiReset: [
-            `*KONFIRMASI RESET DATA*\n\n` +
+            `⚠️ *KONFIRMASI RESET DATA*\n\n` +
             `Tindakan ini akan menghapus *SELURUH* riwayat keuangan kamu.\n\n` +
             `Kalau yakin, balas: *YA* atau *SETUJU*.`
         ],
         batalReset: [
-            "*Reset dibatalkan.* Data keuangan kamu tetap aman."
+            "✅ *Reset dibatalkan.* Data keuangan kamu tetap aman."
         ]
     };
 
-    const opsi = listRespon[kategori] || ["Baik, siap."];
+    const opsi = listRespon[kategori] || ["✅ Baik, siap."];
     return opsi[Math.floor(Math.random() * opsi.length)];
 };
 
@@ -431,7 +445,7 @@ Balas HANYA JSON valid. Jangan pakai markdown.`;
 
         return hasil;
     } catch (error) {
-        console.log("[AI ERROR]: " + error.message + " -> Menggunakan fallback lokal.");
+        console.log("⚠️ [AI ERROR]: " + error.message + " -> Menggunakan fallback lokal.");
         return fallbackParsingLokal(teksUser);
     }
 }
@@ -525,9 +539,9 @@ async function ambilRiwayatTransaksi(limit = 15, jid) {
     const sheet = await getSheetByNomor(jid);
     const rows = await sheet.getRows();
 
-    if (rows.length === 0) return "*Riwayat transaksi masih kosong.*";
+    if (rows.length === 0) return "📭 *Riwayat transaksi masih kosong.*";
 
-    let teks = `*RIWAYAT TRANSAKSI TERBARU*\n`;
+    let teks = `📋 *RIWAYAT TRANSAKSI TERBARU*\n`;
     teks += `_Menampilkan ${Math.min(limit, rows.length)} dari ${rows.length} transaksi terakhir_\n`;
     teks += `------------------------------------\n`;
 
@@ -543,13 +557,13 @@ async function ambilRiwayatTransaksi(limit = 15, jid) {
         const nominal = Number(row.get("Nominal") || 0);
         const keterangan = String(row.get("Keterangan") || "-");
         const dompet = String(row.get("Dompet") || "cash").toUpperCase();
-        const simbol = jenis.toLowerCase() === "pemasukan" ? "+" : "-";
+        const simbol = jenis.toLowerCase() === "pemasukan" ? "🟢 +" : "🔴 -";
 
-        teks += `\n*[${tglOnly}]* ${keterangan}\n`;
+        teks += `\n🗓️ *[${tglOnly}]* ${keterangan}\n`;
         teks += `   ${simbol} *Rp ${formatRupiah(nominal)}* | ${kategori} | ${dompet}\n`;
     }
 
-    teks += `\n------------------------------------\nKetik *hari ini*, *minggu ini*, atau *bulan ini* untuk rekap.`;
+    teks += `\n------------------------------------\n📊 Ketik *hari ini*, *minggu ini*, atau *bulan ini* untuk rekap.`;
     return teks;
 }
 
@@ -585,9 +599,9 @@ async function simpanKeSheet(dataAi, jid) {
         const limit = BUDGET_LIMITS[dataAi.kategori];
 
         if (totalTerpakaiKategori >= limit) {
-            budgetAlert = `*BUDGET OVERLIMIT!*\nPengeluaran *${dataAi.kategori}* bulan ini sudah *Rp ${formatRupiah(totalTerpakaiKategori)}* dari limit *Rp ${formatRupiah(limit)}*.`;
+            budgetAlert = `🚨 *BUDGET OVERLIMIT!*\nPengeluaran *${dataAi.kategori}* bulan ini sudah *Rp ${formatRupiah(totalTerpakaiKategori)}* dari limit *Rp ${formatRupiah(limit)}*.`;
         } else if (totalTerpakaiKategori >= limit * 0.85) {
-            budgetAlert = `*PENGINGAT ANGGARAN!*\nPengeluaran *${dataAi.kategori}* sudah 85%: *Rp ${formatRupiah(totalTerpakaiKategori)}* / Rp ${formatRupiah(limit)}.`;
+            budgetAlert = `⚠️ *PENGINGAT ANGGARAN!*\nPengeluaran *${dataAi.kategori}* sudah 85%: *Rp ${formatRupiah(totalTerpakaiKategori)}* / Rp ${formatRupiah(limit)}.`;
         }
     }
 
@@ -644,7 +658,7 @@ async function handleMessage(sock, msg) {
             if (/^(ya|setuju|ok)$/i.test(pesan)) {
                 delete statusReset[from];
                 await resetSeluruhData(from);
-                return sock.sendMessage(from, { text: "*RESET BERHASIL!*\n\nSemua data pembukuan kamu sudah dikosongkan." });
+                return sock.sendMessage(from, { text: "🗑️ *RESET BERHASIL!*\n\nSemua data pembukuan kamu sudah dikosongkan." });
             }
 
             delete statusReset[from];
@@ -654,63 +668,64 @@ async function handleMessage(sock, msg) {
         if (cocok("menu", pesan)) {
             return sock.sendMessage(from, {
                 text:
-`*BOT CATATAN KEUANGAN*
+`🤖 *BOT CATATAN KEUANGAN*
 
-Kamu cukup ketik seperti ngobrol biasa.
+Kamu cukup ketik seperti ngobrol biasa ✨
 
-*Contoh Pengeluaran:*
-- pengeluaran 25k makan cash
-- beli nasi goreng 25k cash
-- bayar wifi 350k gopay
-- keluar 100rb bensin mandiri
+🛒 *Contoh Pengeluaran:*
+• pengeluaran 25k makan cash
+• beli nasi goreng 25k cash
+• bayar wifi 350k gopay
+• keluar 100rb bensin mandiri
 
-*Contoh Pemasukan:*
-- pemasukan 5jt gaji ke bca
-- gaji masuk 5jt ke bca
-- masuk 750k bonus dana
-- terima transfer 1jt mandiri
+💵 *Contoh Pemasukan:*
+• pemasukan 5jt gaji ke bca
+• gaji masuk 5jt ke bca
+• masuk 750k bonus dana
+• terima transfer 1jt mandiri
 
-*Perintah Laporan:*
-- *hari ini*
-- *minggu ini*
-- *bulan ini*
-- *saldo*
-- *dompet*
-- *budget*
-- *riwayat*
+📊 *Perintah Laporan:*
+• *hari ini* - rekap transaksi hari ini
+• *minggu ini* - rekap 7 hari terakhir
+• *bulan ini* - rekap bulan berjalan
+• *saldo* - total pemasukan, pengeluaran, dan saldo
+• *dompet* - saldo tiap akun/dompet
+• *budget* - cek batas anggaran
+• *riwayat* - lihat transaksi terakhir
 
-*Perintah Darurat:*
-- *undo*
-- *#reset*`
+🚨 *Perintah Darurat:*
+• *undo* - hapus transaksi terakhir
+• *#reset* - kosongkan semua data`
             });
         }
 
         if (cocok("dompet", pesan)) {
             const lap = await buatLaporanKeuangan("semua", from);
-            let teks = "*SALDO AKUN & DOMPET*\n";
+            let teks = "👛 *SALDO AKUN & DOMPET*\n";
             let total = 0;
 
             for (const [dompet, saldo] of Object.entries(lap.saldoDompet)) {
-                teks += `\n*${dompet.toUpperCase()}*: Rp ${formatRupiah(saldo)}`;
+                teks += `\n💳 *${dompet.toUpperCase()}*: Rp ${formatRupiah(saldo)}`;
                 total += saldo;
             }
 
             if (Object.keys(lap.saldoDompet).length === 0) {
-                teks += "\nBelum ada saldo. Catat pemasukan atau pengeluaran dulu ya.";
+                teks += "\n📭 Belum ada saldo. Catat pemasukan atau pengeluaran dulu ya.";
             }
 
-            teks += `\n\n---------------------------------\n*TOTAL:* Rp ${formatRupiah(total)}`;
+            teks += `\n\n---------------------------------\n💰 *TOTAL:* Rp ${formatRupiah(total)}`;
             return sock.sendMessage(from, { text: teks });
         }
 
         if (cocok("budget", pesan)) {
             const lapBulan = await buatLaporanKeuangan("bulan", from);
-            let teks = "*MONITOR ANGGARAN BULAN INI*\n";
+            let teks = "🎯 *MONITOR ANGGARAN BULAN INI*\n";
 
             for (const [kategori, limit] of Object.entries(BUDGET_LIMITS)) {
                 const terpakai = lapBulan.detailKategori[kategori] || 0;
                 const persen = ((terpakai / limit) * 100).toFixed(0);
-                teks += `\n*${kategori}*: Rp ${formatRupiah(terpakai)} / Rp ${formatRupiah(limit)} (*${persen}%*)`;
+                const icon = Number(persen) >= 100 ? "🚨" : Number(persen) >= 85 ? "⚠️" : "✅";
+                teks += `\n${icon} *${kategori}*: Rp ${formatRupiah(terpakai)} / Rp ${formatRupiah(limit)} (*${persen}%*)`;
             }
 
             return sock.sendMessage(from, { text: teks });
@@ -725,12 +740,12 @@ Kamu cukup ketik seperti ngobrol biasa.
 
             return sock.sendMessage(from, {
                 text:
-`*LAPORAN KEUANGAN TOTAL*
+`💰 *LAPORAN KEUANGAN TOTAL*
 
-Pemasukan: Rp ${formatRupiah(lap.totalMasuk)}
-Pengeluaran: Rp ${formatRupiah(lap.totalKeluar)}
+🟢 Pemasukan: Rp ${formatRupiah(lap.totalMasuk)}
+🔴 Pengeluaran: Rp ${formatRupiah(lap.totalKeluar)}
 -------------------------
-*Saldo Bersih: Rp ${formatRupiah(lap.saldo)}*`
+🧮 *Saldo Bersih: Rp ${formatRupiah(lap.saldo)}*`
             });
         }
 
@@ -739,20 +754,20 @@ Pengeluaran: Rp ${formatRupiah(lap.totalKeluar)}
             const lap = await buatLaporanKeuangan(tipe, from);
 
             let teks =
-`*STATISTIK ${tipe.toUpperCase()}*
+`📊 *STATISTIK ${tipe.toUpperCase()}*
 
-Masuk: Rp ${formatRupiah(lap.totalMasuk)}
-Keluar: Rp ${formatRupiah(lap.totalKeluar)}
+🟢 Masuk: Rp ${formatRupiah(lap.totalMasuk)}
+🔴 Keluar: Rp ${formatRupiah(lap.totalKeluar)}
 -------------------------
-*Bersih: Rp ${formatRupiah(lap.saldo)}*
+🧮 *Bersih: Rp ${formatRupiah(lap.saldo)}*
 
-*Sektor Pengeluaran:*`;
+🏷️ *Sektor Pengeluaran:*`;
 
             if (Object.keys(lap.detailKategori).length === 0) {
-                teks += "\nBelum ada pengeluaran pada periode ini.";
+                teks += "\n📭 Belum ada pengeluaran pada periode ini.";
             } else {
                 for (const [kategori, nominal] of Object.entries(lap.detailKategori)) {
-                    teks += `\n- ${kategori}: Rp ${formatRupiah(nominal)}`;
+                    teks += `\n• ${kategori}: Rp ${formatRupiah(nominal)}`;
                 }
             }
 
@@ -788,7 +803,7 @@ Keluar: Rp ${formatRupiah(lap.totalKeluar)}
                 });
             } else {
                 balasanBot = dapatkanRespon("suksesMencatat", {
-                    emoji: dataAi.jenis === "Pemasukan" ? "[MASUK]" : "[KELUAR]",
+                    emoji: dataAi.jenis === "Pemasukan" ? "🟢" : "🔴",
                     jenis: dataAi.jenis,
                     kategori: dataAi.kategori,
                     nominal: formatRupiah(dataAi.nominal),
@@ -805,34 +820,34 @@ Keluar: Rp ${formatRupiah(lap.totalKeluar)}
 
         return sock.sendMessage(from, {
             text:
-`*Aku belum paham maksudnya.*
+`❓ *Aku belum paham maksudnya.*
 
 Coba ketik transaksi seperti:
-- pengeluaran 25k makan cash
-- pemasukan 5jt gaji ke bca
-- bayar listrik 300k gopay
+• pengeluaran 25k makan cash
+• pemasukan 5jt gaji ke bca
+• bayar listrik 300k gopay
 
-Atau ketik *menu* untuk melihat semua perintah.`
+Atau ketik *menu* untuk melihat semua perintah 📋`
         });
     } catch (e) {
-        console.error("Error proses pesan:", e.message || e);
+        console.error("❌ Error proses pesan:", e.message || e);
         return sock.sendMessage(from, {
-            text: "Sistem sedang memproses pembukuan. Mohon kirim ulang beberapa saat lagi."
+            text: "⚠️ Sistem sedang memproses pembukuan. Mohon kirim ulang beberapa saat lagi."
         });
     }
 }
 
 async function startBot() {
     if (sedangStart) {
-        console.log("Bot sedang start, proses dobel dilewati.");
+        console.log("⏳ Bot sedang start, proses dobel dilewati.");
         return;
     }
 
     sedangStart = true;
 
     try {
-        console.log("Memulai Bot Keuangan...");
-        console.log("Metode login WhatsApp: KODE MASUK / PAIRING CODE");
+        console.log("🚀 Memulai Bot Keuangan...");
+        console.log("🔐 Metode login WhatsApp: KODE MASUK / PAIRING CODE");
 
         cleanupSocket();
 
@@ -858,12 +873,12 @@ async function startBot() {
         sock.ev.on("creds.update", saveCreds);
 
         sock.ev.on("connection.update", async ({ connection, qr, lastDisconnect }) => {
-            if (qr) console.log("QR diterima tapi diabaikan. Script ini memakai kode masuk WhatsApp.");
-            if (connection === "connecting") console.log("Menghubungkan ke WhatsApp...");
+            if (qr) console.log("📌 QR diterima tapi diabaikan. Script ini memakai kode masuk WhatsApp.");
+            if (connection === "connecting") console.log("🔌 Menghubungkan ke WhatsApp...");
 
             if (connection === "open") {
                 console.log("");
-                console.log("Bot Keuangan terhubung dan online!");
+                console.log("✅ Bot Keuangan terhubung dan online!");
                 sedangStart = false;
                 jumlahReconnect = 0;
 
@@ -880,13 +895,13 @@ async function startBot() {
                 const alasan = lastDisconnect?.error?.message || "unknown";
                 const alasanLower = String(alasan).toLowerCase();
 
-                console.log(`Koneksi terputus. Status: ${statusCode || "unknown"}`);
-                console.log(`Alasan: ${alasan}`);
+                console.log(`⚠️ Koneksi terputus. Status: ${statusCode || "unknown"}`);
+                console.log(`ℹ️ Alasan: ${alasan}`);
 
                 cleanupSocket();
 
                 if (statusCode === DisconnectReason.loggedOut) {
-                    console.log("WhatsApp logout. Hapus folder session lalu deploy ulang untuk login lagi.");
+                    console.log("❌ WhatsApp logout. Hapus folder session lalu deploy ulang untuk login lagi.");
                     return;
                 }
 
@@ -915,7 +930,7 @@ async function startBot() {
                 if (!msg) return;
                 await handleMessage(sock, msg);
             } catch (err) {
-                console.error("Error messages.upsert:", err.message || err);
+                console.error("❌ Error messages.upsert:", err.message || err);
             }
         });
 
@@ -923,11 +938,11 @@ async function startBot() {
             const nomorWhatsApp = await ambilNomorWhatsApp();
 
             console.log("");
-            console.log("Menunggu koneksi siap sebelum meminta kode...");
+            console.log("⏳ Menunggu koneksi siap sebelum meminta kode...");
             await tunggu(5000);
 
-            console.log("Meminta kode masuk WhatsApp...");
-            console.log(`Nomor WhatsApp: ${nomorWhatsApp}`);
+            console.log("🔐 Meminta kode masuk WhatsApp...");
+            console.log(`📱 Nomor WhatsApp: ${nomorWhatsApp}`);
 
             try {
                 const kodeLogin = await sock.requestPairingCode(nomorWhatsApp);
@@ -935,10 +950,10 @@ async function startBot() {
 
                 console.log("");
                 console.log("========================================");
-                console.log(`KODE MASUK WHATSAPP: ${kodeRapi}`);
+                console.log(`🔑 KODE MASUK WHATSAPP: ${kodeRapi}`);
                 console.log("========================================");
                 console.log("");
-                console.log("Cara pakai:");
+                console.log("📲 Cara pakai:");
                 console.log("1. Buka WhatsApp di HP");
                 console.log("2. Masuk ke Perangkat tertaut");
                 console.log("3. Pilih Tautkan perangkat");
@@ -946,15 +961,15 @@ async function startBot() {
                 console.log("5. Masukkan kode di atas");
                 console.log("");
             } catch (err) {
-                console.log("Gagal meminta kode masuk:", err.message || err);
-                console.log("Coba ulang otomatis dalam 30 detik...");
+                console.log("❌ Gagal meminta kode masuk:", err.message || err);
+                console.log("🔄 Coba ulang otomatis dalam 30 detik...");
                 sedangStart = false;
                 cleanupSocket();
                 jadwalkanReconnect("gagal meminta pairing code", 30000);
                 return;
             }
         } else {
-            console.log("Session WhatsApp sudah terdaftar. Tidak perlu kode masuk lagi.");
+            console.log("✅ Session WhatsApp sudah terdaftar. Tidak perlu kode masuk lagi.");
         }
 
         sedangStart = false;
@@ -962,29 +977,29 @@ async function startBot() {
         sedangStart = false;
         cleanupSocket();
 
-        console.error("Gagal start bot:", err.message || err);
+        console.error("❌ Gagal start bot:", err.message || err);
         jadwalkanReconnect("gagal start bot", 30000);
     }
 }
 
 process.on("uncaughtException", err => {
-    console.error("uncaughtException:", err.message || err);
+    console.error("🔥 uncaughtException:", err.message || err);
     jadwalkanReconnect("uncaughtException", 15000);
 });
 
 process.on("unhandledRejection", err => {
-    console.error("unhandledRejection:", err?.message || err);
+    console.error("🔥 unhandledRejection:", err?.message || err);
     jadwalkanReconnect("unhandledRejection", 15000);
 });
 
 process.on("SIGINT", () => {
-    console.log("Bot dihentikan manual.");
+    console.log("🛑 Bot dihentikan manual.");
     cleanupSocket();
     process.exit(0);
 });
 
 process.on("SIGTERM", () => {
-    console.log("Bot menerima SIGTERM.");
+    console.log("🛑 Bot menerima SIGTERM.");
     cleanupSocket();
     process.exit(0);
 });
