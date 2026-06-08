@@ -358,18 +358,66 @@ _Laporan ini dibuat otomatis oleh Bot Keuangan WA_`;
     return teks;
 }
 
+// ── AI HELPER: retry + model fallback ────────────────────────
+// Urutan model yang dicoba saat 503 / overload
+const AI_MODELS = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b"];
+
+/**
+ * Panggil Gemini dengan retry otomatis.
+ * - Coba setiap model di AI_MODELS maksimal `maxRetry` kali per model.
+ * - Jeda exponential backoff antar percobaan.
+ * - Lempar error hanya jika SEMUA model & retry habis.
+ */
+async function panggilAI(prompt, { maxRetry = 3, jedaAwal = 2000 } = {}) {
+    let lastErr;
+
+    for (const model of AI_MODELS) {
+        for (let percobaan = 1; percobaan <= maxRetry; percobaan++) {
+            try {
+                const resp = await ai.models.generateContent({ model, contents: prompt });
+                const txt  = resp.text || resp.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                if (txt.trim()) {
+                    if (model !== AI_MODELS[0] || percobaan > 1) {
+                        console.log(`✅ AI berhasil dengan model=${model} percobaan=${percobaan}`);
+                    }
+                    return txt.trim();
+                }
+                throw new Error("Respons AI kosong");
+            } catch (e) {
+                lastErr = e;
+                const msg = String(e.message || "").toLowerCase();
+                const is503 = msg.includes("503") || msg.includes("unavailable") ||
+                              msg.includes("high demand") || msg.includes("overloaded");
+
+                console.warn(`⚠️ AI [${model}] percobaan ${percobaan}/${maxRetry}: ${e.message}`);
+
+                // Kalau bukan error sementara (503/overload), langsung coba model berikutnya
+                if (!is503) break;
+
+                // Jeda exponential sebelum retry: 2s, 4s, 8s, …
+                if (percobaan < maxRetry) {
+                    const jeda = jedaAwal * Math.pow(2, percobaan - 1);
+                    console.log(`   ⏳ Tunggu ${jeda/1000}s sebelum retry...`);
+                    await tunggu(jeda);
+                }
+            }
+        }
+    }
+
+    throw lastErr || new Error("Semua model AI tidak tersedia");
+}
+
 // ── ANALISIS AI ───────────────────────────────────────────────
 async function analisisAIKeuangan(lap, tipe="bulan") {
-    try {
-        const ringkasan = {
-            periode: tipe,
-            totalMasuk:  lap.totalMasuk,
-            totalKeluar: lap.totalKeluar,
-            saldo:       lap.saldo,
-            detailKategori: lap.detailKategori
-        };
+    const ringkasan = {
+        periode:        tipe,
+        totalMasuk:     lap.totalMasuk,
+        totalKeluar:    lap.totalKeluar,
+        saldo:          lap.saldo,
+        detailKategori: lap.detailKategori
+    };
 
-        const prompt =
+    const prompt =
 `Kamu adalah konsultan keuangan pribadi yang bijak dan ramah.
 Analisis data keuangan berikut dan berikan insight dalam Bahasa Indonesia:
 
@@ -383,30 +431,53 @@ Berikan:
 
 Gunakan emoji yang sesuai. Jawab max 300 kata. Nada: hangat, tidak menghakimi, memotivasi.`;
 
-        const resp = await ai.models.generateContent({ model:"gemini-2.5-flash", contents: prompt });
-        const txt  = resp.text || resp.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        return txt.trim() || "⚠️ Tidak bisa menganalisis saat ini.";
+    try {
+        return await panggilAI(prompt);
     } catch (e) {
-        console.error("AI analisis error:", e.message);
-        return "⚠️ Analisis AI gagal. Coba lagi nanti.";
+        console.error("❌ analisisAIKeuangan gagal total:", e.message);
+        // Fallback manual berdasarkan data
+        const kondisi = lap.saldo >= 0 ? "positif 🟢" : "defisit 🔴";
+        const terboros = Object.entries(lap.detailKategori).sort((a,b)=>b[1]-a[1])[0];
+        return (
+`📊 *Ringkasan Keuangan (Mode Offline)*
+
+Kondisi saldo kamu saat ini *${kondisi}*.
+🟢 Pemasukan : Rp ${formatRupiah(lap.totalMasuk)}
+🔴 Pengeluaran: Rp ${formatRupiah(lap.totalKeluar)}
+💰 Saldo Bersih: Rp ${formatRupiah(lap.saldo)}
+
+${terboros ? `🏷️ Pengeluaran terbesar: *${terboros[0]}* (Rp ${formatRupiah(terboros[1])})` : ""}
+
+💡 Tips: Coba ketik *tips* untuk saran keuangan, atau coba *analisis* lagi dalam beberapa menit.
+_⚠️ Analisis AI sedang tidak tersedia sementara (server padat)._`
+        );
     }
 }
 
 async function dapatkanTipsHarian() {
+    const TIPS_OFFLINE = [
+        "💡 Terapkan aturan 50/30/20: 50% kebutuhan, 30% keinginan, 20% tabungan.",
+        "🎯 Sebelum beli sesuatu, tanya diri: 'Apakah ini kebutuhan atau keinginan?'",
+        "📊 Review pengeluaran mingguan bisa menghemat 10-15% pengeluaran bulanan.",
+        "🐷 Sisihkan tabungan di awal bulan, bukan sisa di akhir bulan.",
+        "☕ Bawa bekal & kopi sendiri bisa hemat ratusan ribu per bulan.",
+        "📱 Hapus notifikasi promo belanja online untuk mengurangi godaan impulsif.",
+        "🧾 Simpan struk belanja — kesadaran pengeluaran adalah langkah pertama menabung.",
+        "🏦 Dana darurat ideal = 3–6 bulan pengeluaran. Mulai dari yang kecil!",
+        "🔄 Bayar tagihan & cicilan di awal bulan supaya tidak lupa dan tidak boros.",
+        "💳 Hindari cicilan 0% untuk barang konsumtif — itu tetap utang.",
+        "🛒 Buat daftar belanja sebelum ke supermarket dan patuhi daftarnya.",
+        "📈 Investasi Rp 100rb/bulan lebih baik dari tidak sama sekali.",
+    ];
+
+    const hari = new Date().toLocaleDateString("id-ID",{timeZone:APP_TIMEZONE,weekday:"long"});
+    const prompt = `Berikan 1 tips keuangan harian yang singkat, praktis, dan memotivasi dalam Bahasa Indonesia untuk hari ${hari}. Max 3 kalimat. Sertakan 1 emoji yang relevan di awal.`;
+
     try {
-        const hari = new Date().toLocaleDateString("id-ID",{timeZone:APP_TIMEZONE,weekday:"long"});
-        const prompt = `Berikan 1 tips keuangan harian yang singkat, praktis, dan memotivasi dalam Bahasa Indonesia untuk hari ${hari}. Max 3 kalimat. Sertakan 1 emoji yang relevan di awal.`;
-        const resp = await ai.models.generateContent({ model:"gemini-2.5-flash", contents: prompt });
-        return resp.text?.trim() || "💡 Catat setiap pengeluaran, sekecil apapun. Konsistensi adalah kunci keuangan sehat!";
+        return await panggilAI(prompt, { maxRetry: 2, jedaAwal: 1500 });
     } catch {
-        const tips = [
-            "💡 Terapkan aturan 50/30/20: 50% kebutuhan, 30% keinginan, 20% tabungan.",
-            "🎯 Sebelum beli sesuatu, tanya diri: 'Apakah ini kebutuhan atau keinginan?'",
-            "📊 Review pengeluaran mingguan bisa menghemat 10-15% pengeluaran bulanan.",
-            "🐷 Sisihkan tabungan di awal bulan, bukan sisa di akhir bulan.",
-            "☕ Bawa bekal & kopi sendiri bisa hemat ratusan ribu per bulan.",
-        ];
-        return tips[new Date().getDate() % tips.length];
+        // Fallback ke tips statis, rotasi berdasarkan tanggal
+        return TIPS_OFFLINE[new Date().getDate() % TIPS_OFFLINE.length];
     }
 }
 
@@ -447,9 +518,8 @@ function fallbackParsingLokal(text) {
 }
 
 async function analisisPesanDenganAI(teksUser) {
-    try {
-        const waktu = new Date().toLocaleString("id-ID",{timeZone:APP_TIMEZONE});
-        const prompt =
+    const waktu  = new Date().toLocaleString("id-ID",{timeZone:APP_TIMEZONE});
+    const prompt =
 `Kamu sistem AI pencatat keuangan. Waktu sekarang: ${waktu}.
 Analisis chat user → JSON transaksi.
 
@@ -464,20 +534,23 @@ Aturan:
 User: "${teksUser}"
 Balas HANYA JSON valid.`;
 
-        const resp  = await ai.models.generateContent({ model:"gemini-2.5-flash", contents: prompt });
-        let mentah  = resp.text||resp.candidates?.[0]?.content?.parts?.[0]?.text||"";
+    try {
+        let mentah = await panggilAI(prompt, { maxRetry: 3, jedaAwal: 2000 });
         mentah = mentah.replaceAll("```json","").replaceAll("```","").trim();
+
         const hasil = JSON.parse(mentah);
-        if (!hasil.is_transaksi) return { is_transaksi:false };
+        if (!hasil.is_transaksi)                    return { is_transaksi:false };
         if (!hasil.nominal||Number(hasil.nominal)<=0) return { is_transaksi:false };
-        hasil.nominal   = Math.round(Number(hasil.nominal));
-        hasil.dompet    = String(hasil.dompet||"cash").toLowerCase().trim();
-        hasil.keterangan= String(hasil.keterangan||teksUser).trim();
-        hasil.kategori  = String(hasil.kategori||"Lainnya").trim();
-        hasil.jenis     = normalisasiJenis(hasil.jenis||"Pengeluaran");
+
+        hasil.nominal    = Math.round(Number(hasil.nominal));
+        hasil.dompet     = String(hasil.dompet||"cash").toLowerCase().trim();
+        hasil.keterangan = String(hasil.keterangan||teksUser).trim();
+        hasil.kategori   = String(hasil.kategori||"Lainnya").trim();
+        hasil.jenis      = normalisasiJenis(hasil.jenis||"Pengeluaran");
         return hasil;
     } catch (e) {
-        console.log("⚠️ AI error:", e.message,"→ fallback lokal");
+        // panggilAI sudah retry semua model — ini benar-benar gagal, pakai lokal
+        console.log("⚠️ AI parsing gagal total, pakai fallback lokal:", e.message);
         return fallbackParsingLokal(teksUser);
     }
 }
