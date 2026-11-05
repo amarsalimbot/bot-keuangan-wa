@@ -1,0 +1,14 @@
+FROM node:20
+
+WORKDIR /app
+
+COPY package.json ./
+
+RUN npm install
+
+COPY . .
+
+# Membuka port yang diwajibkan oleh Hugging Face
+EXPOSE 7860
+
+CMD ["node", "wa.js"]
